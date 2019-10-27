@@ -10,6 +10,7 @@ namespace StreamJsonRpc
     using System.Linq;
     using System.Reflection;
     using System.Threading;
+    using System.Threading.Tasks;
     using Microsoft;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
@@ -18,6 +19,7 @@ namespace StreamJsonRpc
     internal sealed class TargetMethod
     {
         private readonly JsonRpcRequest request;
+        private readonly IJsonRpcMethodDispatchEvents dispatchEvents;
         private readonly object target;
         private readonly MethodSignature signature;
         private readonly object[] arguments;
@@ -29,12 +31,14 @@ namespace StreamJsonRpc
 
         internal TargetMethod(
             JsonRpcRequest request,
-            List<MethodSignatureAndTarget> candidateMethodTargets)
+            List<MethodSignatureAndTarget> candidateMethodTargets,
+            IJsonRpcMethodDispatchEvents dispatchEvents)
         {
             Requires.NotNull(request, nameof(request));
             Requires.NotNull(candidateMethodTargets, nameof(candidateMethodTargets));
 
             this.request = request;
+            this.dispatchEvents = dispatchEvents;
 
             ArrayPool<object> pool = ArrayPool<object>.Shared;
             foreach (MethodSignatureAndTarget candidateMethod in candidateMethodTargets)
@@ -97,6 +101,7 @@ namespace StreamJsonRpc
                 this.arguments[this.arguments.Length - 1] = cancellationToken;
             }
 
+            this.dispatchEvents?.OnMethodInvoking(this.request, this.signature.MethodInfo, this.target, cancellationToken);
             return this.signature.MethodInfo.Invoke(!this.signature.MethodInfo.IsStatic ? this.target : null, this.arguments);
         }
 

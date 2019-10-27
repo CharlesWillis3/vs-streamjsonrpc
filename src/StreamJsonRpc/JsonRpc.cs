@@ -205,6 +205,21 @@ namespace StreamJsonRpc
         }
 
         /// <summary>
+        /// Initializes a new instance of the <see cref="JsonRpc"/> class.
+        /// </summary>
+        /// <param name="messageHandler">The message handler to use to transmit and receive RPC messages.</param>
+        /// <param name="dispatchEvents">Callbacks for method dispatch.</param>
+        /// <remarks>
+        /// It is important to call <see cref="StartListening"/> to begin receiving messages.
+        /// </remarks>
+        public JsonRpc(IJsonRpcMessageHandler messageHandler, IJsonRpcMethodDispatchEvents dispatchEvents)
+            : this(messageHandler)
+        {
+            Requires.NotNull(dispatchEvents, nameof(dispatchEvents));
+            this.DispatchEvents = dispatchEvents;
+        }
+
+        /// <summary>
         /// Raised when the underlying stream is disconnected.
         /// </summary>
         public event EventHandler<JsonRpcDisconnectedEventArgs> Disconnected
@@ -427,6 +442,11 @@ namespace StreamJsonRpc
         /// Gets the message handler used to send and receive messages.
         /// </summary>
         internal IJsonRpcMessageHandler MessageHandler { get; }
+
+        /// <summary>
+        /// Gets the optional object used to communicate method dispatch events.
+        /// </summary>
+        internal IJsonRpcMethodDispatchEvents DispatchEvents { get; }
 
         /// <summary>
         /// Gets a token that is cancelled when the connection is lost.
@@ -1580,7 +1600,7 @@ namespace StreamJsonRpc
                 {
                     if (this.targetRequestMethodToClrMethodMap.TryGetValue(request.Method, out List<MethodSignatureAndTarget> candidateTargets))
                     {
-                        targetMethod = new TargetMethod(request, candidateTargets);
+                        targetMethod = new TargetMethod(request, candidateTargets, this.DispatchEvents);
                     }
                 }
 
