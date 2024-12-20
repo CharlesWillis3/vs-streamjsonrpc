@@ -15,7 +15,6 @@ using System.Text;
 using System.Text.Json.Nodes;
 using MessagePack;
 using MessagePack.Formatters;
-using MessagePack.Resolvers;
 using Nerdbank.MessagePack;
 using Nerdbank.Streams;
 using PolyType;
@@ -94,9 +93,9 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// </summary>
     private readonly FormatterContext rpcContext;
 
-    private readonly ProgressFormatterResolver progressFormatterResolver;
+    private readonly ProgressConverterResolver progressConverterResolver;
 
-    private readonly AsyncEnumerableFormatterResolver asyncEnumerableFormatterResolver;
+    private readonly AsyncEnumerableConverterResolver asyncEnumerableConverterResolver;
 
     private readonly PipeFormatterResolver pipeFormatterResolver;
 
@@ -134,8 +133,10 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         this.rpcContext = new FormatterContext(serializer, ShapeProvider_StreamJsonRpc.Default);
 
         // Create the specialized formatters/resolvers that we will inject into the chain for user data.
-        this.progressFormatterResolver = new ProgressFormatterResolver(this);
-        this.asyncEnumerableFormatterResolver = new AsyncEnumerableFormatterResolver(this);
+        this.progressConverterResolver = new ProgressConverterResolver(this);
+        this.asyncEnumerableConverterResolver = new AsyncEnumerableConverterResolver(this);
+
+        // TODO: Convert these to converter resolvers?
         this.pipeFormatterResolver = new PipeFormatterResolver(this);
         this.exceptionResolver = new MessagePackExceptionResolver(this);
 
@@ -177,7 +178,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     {
         Requires.NotNull(configure, nameof(configure));
 
-        var builder = new FormatterContextBuilder(this.userDataContext.Serializer);
+        var builder = new FormatterContextBuilder(this, this.userDataContext.Serializer);
         configure(builder);
 
         FormatterContext context = builder.Build();
@@ -449,30 +450,11 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             // Support for marshalled objects.
             // new RpcMarshalableResolver(this)
 
+            // TODO: Add support for exotic types
             // Stateful or per-connection resolvers.
-            this.progressFormatterResolver,
-            this.asyncEnumerableFormatterResolver,
             this.pipeFormatterResolver,
             this.exceptionResolver,
         };
-
-        // Wrap the resolver in another class as a way to pass information to our custom formatters.
-        IFormatterResolver userDataResolver = new ResolverWrapper(CompositeResolver.Create(resolvers), this);
-    }
-
-    private class ResolverWrapper : IFormatterResolver
-    {
-        private readonly IFormatterResolver inner;
-
-        internal ResolverWrapper(IFormatterResolver inner, NerdbankMessagePackFormatter formatter)
-        {
-            this.inner = inner;
-            this.Formatter = formatter;
-        }
-
-        internal NerdbankMessagePackFormatter Formatter { get; }
-
-        public IMessagePackFormatter<T>? GetFormatter<T>() => this.inner.GetFormatter<T>();
     }
 
     private class MessagePackFormatterConverter : IFormatterConverter
@@ -633,36 +615,36 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class ProgressFormatterResolver : IFormatterResolver
+    private class ProgressConverterResolver
     {
-        private readonly MessagePackFormatter mainFormatter;
+        private readonly NerdbankMessagePackFormatter mainFormatter;
 
-        private readonly Dictionary<Type, IMessagePackFormatter?> progressFormatters = [];
+        private readonly Dictionary<Type, IMessagePackConverter?> progressConverters = [];
 
-        internal ProgressFormatterResolver(MessagePackFormatter formatter)
+        internal ProgressConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.mainFormatter = formatter;
         }
 
-        public IMessagePackFormatter<T>? GetFormatter<T>()
+        public MessagePackConverter<T>? GetConverter<T>()
         {
-            lock (this.progressFormatters)
+            lock (this.progressConverters)
             {
-                if (!this.progressFormatters.TryGetValue(typeof(T), out IMessagePackFormatter? formatter))
+                if (!this.progressConverters.TryGetValue(typeof(T), out IMessagePackConverter? converter))
                 {
                     if (MessageFormatterProgressTracker.CanDeserialize(typeof(T)))
                     {
-                        formatter = new PreciseTypeFormatter<T>(this.mainFormatter);
+                        converter = new PreciseTypeConverter<T>(this.mainFormatter);
                     }
                     else if (MessageFormatterProgressTracker.CanSerialize(typeof(T)))
                     {
-                        formatter = new ProgressClientFormatter<T>(this.mainFormatter);
+                        converter = new ProgressClientConverter<T>(this.mainFormatter);
                     }
 
-                    this.progressFormatters.Add(typeof(T), formatter);
+                    this.progressConverters.Add(typeof(T), converter);
                 }
 
-                return (IMessagePackFormatter<T>?)formatter;
+                return (MessagePackConverter<T>?)converter;
             }
         }
 
@@ -749,36 +731,36 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class AsyncEnumerableFormatterResolver : IFormatterResolver
+    private class AsyncEnumerableConverterResolver
     {
-        private readonly MessagePackFormatter mainFormatter;
+        private readonly NerdbankMessagePackFormatter mainFormatter;
 
-        private readonly Dictionary<Type, IMessagePackFormatter?> enumerableFormatters = new Dictionary<Type, IMessagePackFormatter?>();
+        private readonly Dictionary<Type, IMessagePackConverter?> enumerableFormatters = [];
 
-        internal AsyncEnumerableFormatterResolver(MessagePackFormatter formatter)
+        internal AsyncEnumerableConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.mainFormatter = formatter;
         }
 
-        public IMessagePackFormatter<T>? GetFormatter<T>()
+        public MessagePackConverter<T>? GetConverter<T>()
         {
             lock (this.enumerableFormatters)
             {
-                if (!this.enumerableFormatters.TryGetValue(typeof(T), out IMessagePackFormatter? formatter))
+                if (!this.enumerableFormatters.TryGetValue(typeof(T), out IMessagePackConverter? converter))
                 {
                     if (TrackerHelpers<IAsyncEnumerable<int>>.IsActualInterfaceMatch(typeof(T)))
                     {
-                        formatter = (IMessagePackFormatter<T>?)Activator.CreateInstance(typeof(PreciseTypeConverter<>).MakeGenericType(typeof(T).GenericTypeArguments[0]), new object[] { this.mainFormatter });
+                        converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PreciseTypeConverter<>).MakeGenericType(typeof(T).GenericTypeArguments[0]), new object[] { this.mainFormatter });
                     }
                     else if (TrackerHelpers<IAsyncEnumerable<int>>.FindInterfaceImplementedBy(typeof(T)) is { } iface)
                     {
-                        formatter = (IMessagePackFormatter<T>?)Activator.CreateInstance(typeof(GeneratorConverter<,>).MakeGenericType(typeof(T), iface.GenericTypeArguments[0]), new object[] { this.mainFormatter });
+                        converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(GeneratorConverter<,>).MakeGenericType(typeof(T), iface.GenericTypeArguments[0]), new object[] { this.mainFormatter });
                     }
 
-                    this.enumerableFormatters.Add(typeof(T), formatter);
+                    this.enumerableFormatters.Add(typeof(T), converter);
                 }
 
-                return (IMessagePackFormatter<T>?)formatter;
+                return (MessagePackConverter<T>?)converter;
             }
         }
 
@@ -2365,13 +2347,30 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
     private record FormatterContext(NBMP::MessagePackSerializer Serializer, ITypeShapeProvider ShapeProvider);
 
-    private class FormatterContextBuilder(NBMP::MessagePackSerializer serializer) : IFormatterContextBuilder
+    private class FormatterContextBuilder(NerdbankMessagePackFormatter formatter, NBMP::MessagePackSerializer serializer) : IFormatterContextBuilder
     {
         private readonly CompositeTypeShapeProviderBuilder providerBuilder = new();
 
         public ICompositeTypeShapeProviderBuilder TypeShapeProviderBuilder => this.providerBuilder;
 
         public void RegisterConverter<T>(NBMP::MessagePackConverter<T> converter) => serializer.RegisterConverter(converter);
+
+        public void RegisterProgressTypeConverter<TProgress>()
+        {
+            // TODO: Improve Exception
+            MessagePackConverter<TProgress> converter = formatter.progressConverterResolver.GetConverter<TProgress>()
+                ?? throw new InvalidOperationException("No converter found for " + typeof(TProgress).FullName);
+
+            serializer.RegisterConverter(converter);
+        }
+
+        public void RegisterAsyncEnumerableTypeConverter<TElement>()
+        {
+            MessagePackConverter<TElement> converter = formatter.asyncEnumerableConverterResolver.GetConverter<TElement>()
+                ?? throw new InvalidOperationException("No converter found for " + typeof(TElement).FullName);
+
+            serializer.RegisterConverter(converter);
+        }
 
         public void RegisterKnownSubTypes<TBase>(NBMP::KnownSubTypeMapping<TBase> mapping)
         {
