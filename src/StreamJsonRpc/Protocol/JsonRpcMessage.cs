@@ -3,8 +3,8 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Serialization;
-using NBMP = Nerdbank.MessagePack;
-using PT = PolyType;
+using Nerdbank.MessagePack;
+using PolyType;
 using STJ = System.Text.Json.Serialization;
 
 namespace StreamJsonRpc.Protocol;
@@ -17,9 +17,9 @@ namespace StreamJsonRpc.Protocol;
 [KnownType(typeof(JsonRpcResult))]
 [KnownType(typeof(JsonRpcError))]
 #pragma warning disable CS0618 //'KnownSubTypeAttribute.KnownSubTypeAttribute(Type)' is obsolete: 'Use the generic version of this attribute instead.'
-[NBMP::KnownSubType(typeof(JsonRpcRequest))]
-[NBMP::KnownSubType(typeof(JsonRpcResult))]
-[NBMP::KnownSubType(typeof(JsonRpcError))]
+[KnownSubType(typeof(JsonRpcRequest))]
+[KnownSubType(typeof(JsonRpcResult))]
+[KnownSubType(typeof(JsonRpcError))]
 #pragma warning restore CS0618
 public abstract class JsonRpcMessage
 {
@@ -29,7 +29,7 @@ public abstract class JsonRpcMessage
     /// <value>Defaults to "2.0".</value>
     [DataMember(Name = "jsonrpc", Order = 0, IsRequired = true)]
     [STJ.JsonPropertyName("jsonrpc"), STJ.JsonPropertyOrder(0), STJ.JsonRequired]
-    [PT.PropertyShape(Name = "jsonrpc", Order = 0)]
+    [PropertyShape(Name = "jsonrpc", Order = 0)]
     public string Version { get; set; } = "2.0";
 
     /// <summary>

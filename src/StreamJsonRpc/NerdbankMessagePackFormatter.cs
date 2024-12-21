@@ -157,13 +157,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         ReadOnlySequence<byte> OriginalMessagePack { get; }
     }
 
-    /// <inheritdoc cref="FormatterBase.MultiplexingStream"/>
-    public new MultiplexingStream? MultiplexingStream
-    {
-        get => base.MultiplexingStream;
-        set => base.MultiplexingStream = value;
-    }
-
     /// <summary>
     /// Configures the serialization context for user data with the specified configuration action.
     /// </summary>
@@ -328,7 +321,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 if (TryGetSerializationInfo(property, out string key))
                 {
                     result[key] = property.GetValue(paramsObject);
-                    if (mutableArgumentTypes is object)
+                    if (mutableArgumentTypes is not null)
                     {
                         mutableArgumentTypes[key] = property.PropertyType;
                     }
@@ -341,7 +334,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             if (TryGetSerializationInfo(field, out string key))
             {
                 result[key] = field.GetValue(paramsObject);
-                if (mutableArgumentTypes is object)
+                if (mutableArgumentTypes is not null)
                 {
                     mutableArgumentTypes[key] = field.FieldType;
                 }

@@ -3,8 +3,8 @@
 
 using System.Diagnostics;
 using System.Runtime.Serialization;
+using PolyType;
 using JsonNET = Newtonsoft.Json.Linq;
-using PT = PolyType;
 using STJ = System.Text.Json.Serialization;
 
 namespace StreamJsonRpc.Protocol;
@@ -14,7 +14,7 @@ namespace StreamJsonRpc.Protocol;
 /// </summary>
 [DataContract]
 [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
-[PT.GenerateShape]
+[GenerateShape]
 public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
 {
     /// <summary>
@@ -22,7 +22,7 @@ public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
     /// </summary>
     [DataMember(Name = "result", Order = 2, IsRequired = true, EmitDefaultValue = true)]
     [STJ.JsonPropertyName("result"), STJ.JsonPropertyOrder(2), STJ.JsonRequired]
-    [PT.PropertyShape(Name = "result", Order = 2)]
+    [PropertyShape(Name = "result", Order = 2)]
     public object? Result { get; set; }
 
     /// <summary>
@@ -33,7 +33,7 @@ public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
     /// </remarks>
     [IgnoreDataMember]
     [STJ.JsonIgnore]
-    [PT.PropertyShape(Ignore = true)]
+    [PropertyShape(Ignore = true)]
     public Type? ResultDeclaredType { get; set; }
 
     /// <summary>
@@ -43,7 +43,7 @@ public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
     [Obsolete("Use " + nameof(RequestId) + " instead.")]
     [IgnoreDataMember]
     [STJ.JsonIgnore]
-    [PT.PropertyShape(Ignore = true)]
+    [PropertyShape(Ignore = true)]
     public object? Id
     {
         get => this.RequestId.ObjectValue;
@@ -55,7 +55,7 @@ public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
     /// </summary>
     [DataMember(Name = "id", Order = 1, IsRequired = true)]
     [STJ.JsonPropertyName("id"), STJ.JsonPropertyOrder(1), STJ.JsonRequired]
-    [PT.PropertyShape(Name = "id", Order = 1)]
+    [PropertyShape(Name = "id", Order = 1)]
     public RequestId RequestId { get; set; }
 
     /// <summary>
