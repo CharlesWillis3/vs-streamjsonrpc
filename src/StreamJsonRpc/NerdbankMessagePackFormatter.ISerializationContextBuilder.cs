@@ -6,7 +6,6 @@ using System.IO.Pipelines;
 using Nerdbank.MessagePack;
 using PolyType;
 using PolyType.Abstractions;
-using PolyType.ReflectionProvider;
 using StreamJsonRpc.Reflection;
 
 namespace StreamJsonRpc;
@@ -20,178 +19,139 @@ namespace StreamJsonRpc;
 public sealed partial class NerdbankMessagePackFormatter
 {
     /// <summary>
-    /// Provides a builder interface for configuring the serialization context.
+    /// Provides methods to build a serialization context for the <see cref="NerdbankMessagePackFormatter"/>.
     /// </summary>
-    public interface IFormatterContextBuilder
+    public class FormatterContextBuilder
     {
-        /// <summary>
-        /// Registers a custom converter for a specific type.
-        /// </summary>
-        /// <typeparam name="T">The type for which the converter is registered.</typeparam>
-        /// <param name="converter">The converter to register.</param>
-        void RegisterConverter<T>(MessagePackConverter<T> converter);
+        private readonly NerdbankMessagePackFormatter formatter;
+        private readonly FormatterContext baseContext;
+
+        private ImmutableArray<ITypeShapeProvider>.Builder? typeShapeProvidersBuilder = null;
 
         /// <summary>
-        /// Registers known subtypes for a base type.
+        /// Initializes a new instance of the <see cref="FormatterContextBuilder"/> class.
         /// </summary>
-        /// <typeparam name="TBase">The base type for which the subtypes are registered.</typeparam>
-        /// <param name="mapping">The mapping of known subtypes.</param>
-        void RegisterKnownSubTypes<TBase>(KnownSubTypeMapping<TBase> mapping);
+        /// <param name="formatter">The formatter to use.</param>
+        /// <param name="baseContext">The base context to build upon.</param>
+        internal FormatterContextBuilder(NerdbankMessagePackFormatter formatter, FormatterContext baseContext)
+        {
+            this.formatter = formatter;
+            this.baseContext = baseContext;
+        }
 
         /// <summary>
-        /// Registers a type converter for progress types.
-        /// </summary>
-        /// <typeparam name="TProgress">The type of the progress to register.</typeparam>
-        /// <typeparam name="TReport">The type of the progress report.</typeparam>
-        void RegisterProgressType<TProgress, TReport>()
-            where TProgress : IProgress<TReport>;
-
-        /// <summary>
-        /// Registers a type converter for asynchronous enumerable types.
-        /// </summary>
-        /// <typeparam name="TEnumerable">The type of the asynchronous enumerable to register.</typeparam>
-        /// <typeparam name="TElement">The element type of the asynchronous enumerable.</typeparam>
-        void RegisterAsyncEnumerableType<TEnumerable, TElement>()
-            where TEnumerable : IAsyncEnumerable<TElement>;
-
-        /// <summary>
-        /// Registers a type converter for duplex pipe types.
-        /// </summary>
-        /// <typeparam name="TPipe">The type of the duplex pipe to register.</typeparam>
-        void RegisterDuplexPipeType<TPipe>()
-            where TPipe : IDuplexPipe;
-
-        /// <summary>
-        /// Registers a type converter for pipe reader types.
-        /// </summary>
-        /// <typeparam name="TReader">The type of the pipe reader to register.</typeparam>
-        void RegisterPipeReaderType<TReader>()
-            where TReader : PipeReader;
-
-        /// <summary>
-        /// Registers a type converter for pipe writer types.
-        /// </summary>
-        /// <typeparam name="TWriter">The type of the pipe writer to register.</typeparam>
-        void RegisterPipeWriterType<TWriter>()
-            where TWriter : PipeWriter;
-
-        /// <summary>
-        /// Registers a type converter for stream types.
-        /// </summary>
-        /// <typeparam name="TStream">The type of the stream to register.</typeparam>
-        void RegisterStreamType<TStream>()
-            where TStream : Stream;
-
-        /// <summary>
-        /// Registers a type that can be marshaled over RPC.
-        /// </summary>
-        /// <typeparam name="T">The type to register.</typeparam>
-        void RegisterRpcMarshalableType<T>()
-            where T : class;
-
-        /// <summary>
-        /// Registers a custom exception type for serialization.
-        /// </summary>
-        /// <typeparam name="TException">The type of the exception to register.</typeparam>
-        void RegisterExceptionType<TException>()
-            where TException : Exception;
-
-        /// <summary>
-        /// Adds a type shape provider to the formatter context.
+        /// Adds a type shape provider to the context.
         /// </summary>
         /// <param name="provider">The type shape provider to add.</param>
-        void AddTypeShapeProvider(ITypeShapeProvider provider);
-
-        /// <summary>
-        /// Enable the reflection fallback for dynamic type generation.
-        /// </summary>
-        /// <param name="useReflectionEmit">A value indicating whether to use Reflection.Emit for dynamic type generation.</param>
-        void EnableReflectionFallback(bool useReflectionEmit);
-    }
-
-    private class FormatterContextBuilder(
-        NerdbankMessagePackFormatter formatter,
-        FormatterContext baseContext)
-        : IFormatterContextBuilder
-    {
-        private ImmutableArray<ITypeShapeProvider>.Builder? typeShapeProvidersBuilder = null;
-        private ReflectionTypeShapeProvider? reflectionTypeShapeProvider = null;
-
         public void AddTypeShapeProvider(ITypeShapeProvider provider)
         {
             this.typeShapeProvidersBuilder ??= ImmutableArray.CreateBuilder<ITypeShapeProvider>();
             this.typeShapeProvidersBuilder.Add(provider);
         }
 
-        public void EnableReflectionFallback(bool useReflectionEmit)
-        {
-            ReflectionTypeShapeProviderOptions options = new()
-            {
-                UseReflectionEmit = useReflectionEmit,
-            };
-
-            this.reflectionTypeShapeProvider = ReflectionTypeShapeProvider.Create(options);
-        }
-
+        /// <summary>
+        /// Registers an async enumerable type with the context.
+        /// </summary>
+        /// <typeparam name="TEnumerable">The type of the async enumerable.</typeparam>
+        /// <typeparam name="TElement">The type of the elements in the async enumerable.</typeparam>
         public void RegisterAsyncEnumerableType<TEnumerable, TElement>()
             where TEnumerable : IAsyncEnumerable<TElement>
         {
-            MessagePackConverter<TEnumerable> converter = formatter.asyncEnumerableConverterResolver.GetConverter<TEnumerable>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TEnumerable> converter = this.formatter.asyncEnumerableConverterResolver.GetConverter<TEnumerable>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers a converter with the context.
+        /// </summary>
+        /// <typeparam name="T">The type the converter handles.</typeparam>
+        /// <param name="converter">The converter to register.</param>
         public void RegisterConverter<T>(MessagePackConverter<T> converter)
         {
-            baseContext.Serializer.RegisterConverter(converter);
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers known subtypes for a base type with the context.
+        /// </summary>
+        /// <typeparam name="TBase">The base type.</typeparam>
+        /// <param name="mapping">The mapping of known subtypes.</param>
         public void RegisterKnownSubTypes<TBase>(KnownSubTypeMapping<TBase> mapping)
         {
-            baseContext.Serializer.RegisterKnownSubTypes(mapping);
+            this.baseContext.Serializer.RegisterKnownSubTypes(mapping);
         }
 
+        /// <summary>
+        /// Registers a progress type with the context.
+        /// </summary>
+        /// <typeparam name="TProgress">The type of the progress.</typeparam>
+        /// <typeparam name="TReport">The type of the report.</typeparam>
         public void RegisterProgressType<TProgress, TReport>()
             where TProgress : IProgress<TReport>
         {
-            MessagePackConverter<TProgress> converter = formatter.progressConverterResolver.GetConverter<TProgress>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TProgress> converter = this.formatter.progressConverterResolver.GetConverter<TProgress>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers a duplex pipe type with the context.
+        /// </summary>
+        /// <typeparam name="TPipe">The type of the duplex pipe.</typeparam>
         public void RegisterDuplexPipeType<TPipe>()
             where TPipe : IDuplexPipe
         {
-            MessagePackConverter<TPipe> converter = formatter.pipeConverterResolver.GetConverter<TPipe>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TPipe> converter = this.formatter.pipeConverterResolver.GetConverter<TPipe>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers a pipe reader type with the context.
+        /// </summary>
+        /// <typeparam name="TReader">The type of the pipe reader.</typeparam>
         public void RegisterPipeReaderType<TReader>()
             where TReader : PipeReader
         {
-            MessagePackConverter<TReader> converter = formatter.pipeConverterResolver.GetConverter<TReader>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TReader> converter = this.formatter.pipeConverterResolver.GetConverter<TReader>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers a pipe writer type with the context.
+        /// </summary>
+        /// <typeparam name="TWriter">The type of the pipe writer.</typeparam>
         public void RegisterPipeWriterType<TWriter>()
             where TWriter : PipeWriter
         {
-            MessagePackConverter<TWriter> converter = formatter.pipeConverterResolver.GetConverter<TWriter>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TWriter> converter = this.formatter.pipeConverterResolver.GetConverter<TWriter>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers a stream type with the context.
+        /// </summary>
+        /// <typeparam name="TStream">The type of the stream.</typeparam>
         public void RegisterStreamType<TStream>()
             where TStream : Stream
         {
-            MessagePackConverter<TStream> converter = formatter.pipeConverterResolver.GetConverter<TStream>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TStream> converter = this.formatter.pipeConverterResolver.GetConverter<TStream>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers an exception type with the context.
+        /// </summary>
+        /// <typeparam name="TException">The type of the exception.</typeparam>
         public void RegisterExceptionType<TException>()
             where TException : Exception
         {
-            MessagePackConverter<TException> converter = formatter.exceptionResolver.GetConverter<TException>();
-            baseContext.Serializer.RegisterConverter(converter);
+            MessagePackConverter<TException> converter = this.formatter.exceptionResolver.GetConverter<TException>();
+            this.baseContext.Serializer.RegisterConverter(converter);
         }
 
+        /// <summary>
+        /// Registers an RPC marshalable type with the context.
+        /// </summary>
+        /// <typeparam name="T">The type to register.</typeparam>
         public void RegisterRpcMarshalableType<T>()
             where T : class
         {
@@ -203,34 +163,33 @@ public sealed partial class NerdbankMessagePackFormatter
             {
                 var converter = (RpcMarshalableConverter<T>)Activator.CreateInstance(
                     typeof(RpcMarshalableConverter<>).MakeGenericType(typeof(T)),
-                    formatter,
+                    this.formatter,
                     proxyOptions,
                     targetOptions,
                     attribute)!;
 
-                baseContext.Serializer.RegisterConverter(converter);
+                this.baseContext.Serializer.RegisterConverter(converter);
             }
 
             // TODO: Throw?
         }
 
+        /// <summary>
+        /// Builds the formatter context.
+        /// </summary>
+        /// <returns>The built formatter context.</returns>
         internal FormatterContext Build()
         {
-            if (this.reflectionTypeShapeProvider is not null)
-            {
-                this.AddTypeShapeProvider(this.reflectionTypeShapeProvider);
-            }
-
             if (this.typeShapeProvidersBuilder is null || this.typeShapeProvidersBuilder.Count < 1)
             {
-                return baseContext;
+                return this.baseContext;
             }
 
             ITypeShapeProvider provider = this.typeShapeProvidersBuilder.Count == 1
                 ? this.typeShapeProvidersBuilder[0]
                 : new CompositeTypeShapeProvider(this.typeShapeProvidersBuilder.ToImmutable());
 
-            return new FormatterContext(baseContext.Serializer, provider);
+            return new FormatterContext(this.baseContext.Serializer, provider);
         }
     }
 

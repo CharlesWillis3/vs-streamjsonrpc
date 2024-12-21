@@ -3,19 +3,15 @@
 
 using System.Buffers;
 using System.Collections.Immutable;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO.Pipelines;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices.ComTypes;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Text.Json.Nodes;
-using MessagePack;
-using MessagePack.Formatters;
 using Nerdbank.MessagePack;
 using Nerdbank.Streams;
 using PolyType;
@@ -24,7 +20,6 @@ using PolyType.ReflectionProvider;
 using PolyType.SourceGenerator;
 using StreamJsonRpc.Protocol;
 using StreamJsonRpc.Reflection;
-using NBMP = Nerdbank.MessagePack;
 
 namespace StreamJsonRpc;
 
@@ -117,7 +112,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     public NerdbankMessagePackFormatter()
     {
         // Set up initial options for our own message types.
-        NBMP::MessagePackSerializer serializer = new()
+        MessagePackSerializer serializer = new()
         {
             InternStrings = true,
             SerializeDefaultValues = false,
@@ -173,7 +168,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// Configures the serialization context for user data with the specified configuration action.
     /// </summary>
     /// <param name="configure">The action to configure the serialization context.</param>
-    public void SetFormatterContext(Action<IFormatterContextBuilder> configure)
+    public void SetFormatterContext(Action<FormatterContextBuilder> configure)
     {
         Requires.NotNull(configure, nameof(configure));
 
@@ -190,7 +185,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     public JsonRpcMessage Deserialize(ReadOnlySequence<byte> contentBuffer)
     {
         JsonRpcMessage message = this.rpcContext.Serializer.Deserialize<JsonRpcMessage>(contentBuffer, ShapeProvider_StreamJsonRpc.Default)
-            ?? throw new NBMP::MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+            ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
 
         IJsonRpcTracingCallbacks? tracingCallbacks = this.JsonRpc;
         this.deserializationToStringHelper.Activate(contentBuffer);
@@ -223,7 +218,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
         }
 
-        var writer = new NBMP::MessagePackWriter(contentBuffer);
+        var writer = new MessagePackWriter(contentBuffer);
         try
         {
             this.rpcContext.Serializer.Serialize(ref writer, message, this.rpcContext.ShapeProvider);
@@ -231,13 +226,13 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
         catch (Exception ex)
         {
-            throw new NBMP::MessagePackSerializationException(string.Format(CultureInfo.CurrentCulture, Resources.ErrorWritingJsonRpcMessage, ex.GetType().Name, ex.Message), ex);
+            throw new MessagePackSerializationException(string.Format(CultureInfo.CurrentCulture, Resources.ErrorWritingJsonRpcMessage, ex.GetType().Name, ex.Message), ex);
         }
     }
 
     /// <inheritdoc/>
     public object GetJsonText(JsonRpcMessage message) => message is IJsonRpcMessagePackRetention retainedMsgPack
-        ? NBMP::MessagePackSerializer.ConvertToJson(retainedMsgPack.OriginalMessagePack)
+        ? MessagePackSerializer.ConvertToJson(retainedMsgPack.OriginalMessagePack)
         : throw new NotSupportedException();
 
     /// <inheritdoc/>
@@ -373,7 +368,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         return (result, argumentTypes!);
     }
 
-    private static ReadOnlySequence<byte> GetSliceForNextToken(ref NBMP::MessagePackReader reader, in NBMP::SerializationContext context)
+    private static ReadOnlySequence<byte> GetSliceForNextToken(ref MessagePackReader reader, in SerializationContext context)
     {
         SequencePosition startingPosition = reader.Position;
         reader.Skip(context);
@@ -386,12 +381,12 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// </summary>
     /// <param name="reader">The reader to use.</param>
     /// <returns>The decoded string.</returns>
-    private static unsafe string ReadProtocolVersion(ref NBMP::MessagePackReader reader)
+    private static unsafe string ReadProtocolVersion(ref MessagePackReader reader)
     {
         if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> valueBytes))
         {
             // TODO: More specific exception type
-            throw new NBMP::MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+            throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
         }
 
         // Recognize "2.0" since we expect it and can avoid decoding and allocating a new string for it.
@@ -412,7 +407,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// <summary>
     /// Writes the JSON-RPC version property name and value in a highly optimized way.
     /// </summary>
-    private static void WriteProtocolVersionPropertyAndValue(ref NBMP::MessagePackWriter writer, string version)
+    private static void WriteProtocolVersionPropertyAndValue(ref MessagePackWriter writer, string version)
     {
         VersionPropertyName.Write(ref writer);
         if (!Version2.TryWrite(ref writer, version))
@@ -421,7 +416,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private static void ReadUnknownProperty(ref NBMP::MessagePackReader reader, in NBMP::SerializationContext context, ref Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties, ReadOnlySpan<byte> stringKey)
+    private static void ReadUnknownProperty(ref MessagePackReader reader, in SerializationContext context, ref Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties, ReadOnlySpan<byte> stringKey)
     {
         topLevelProperties ??= new Dictionary<string, ReadOnlySequence<byte>>(StringComparer.Ordinal);
 #if NETSTANDARD2_1_OR_GREATER || NET6_0_OR_GREATER
@@ -516,7 +511,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         {
             Verify.Operation(this.encodedMessage.HasValue, "This object has not been activated. It may have already been recycled.");
 
-            return this.jsonString ??= NBMP::MessagePackSerializer.ConvertToJson(this.encodedMessage.Value);
+            return this.jsonString ??= MessagePackSerializer.ConvertToJson(this.encodedMessage.Value);
         }
 
         /// <summary>
@@ -537,15 +532,15 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class RequestIdConverter : NBMP::MessagePackConverter<RequestId>
+    private class RequestIdConverter : MessagePackConverter<RequestId>
     {
         internal static readonly RequestIdConverter Instance = new();
 
-        public override RequestId Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public override RequestId Read(ref MessagePackReader reader, SerializationContext context)
         {
             context.DepthStep();
 
-            if (reader.NextMessagePackType == NBMP.MessagePackType.Integer)
+            if (reader.NextMessagePackType == MessagePackType.Integer)
             {
                 return new RequestId(reader.ReadInt64());
             }
@@ -556,7 +551,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
         }
 
-        public override void Write(ref NBMP.MessagePackWriter writer, in RequestId value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in RequestId value, SerializationContext context)
         {
             context.DepthStep();
 
@@ -586,13 +581,13 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
 
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override RawMessagePack Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public override RawMessagePack Read(ref MessagePackReader reader, SerializationContext context)
         {
             return RawMessagePack.ReadRaw(ref reader, copy: false, context);
         }
 
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override void Write(ref NBMP.MessagePackWriter writer, in RawMessagePack value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in RawMessagePack value, SerializationContext context)
         {
             value.WriteRaw(ref writer);
         }
@@ -641,12 +636,12 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 this.formatter = formatter;
             }
 
-            public override TClass Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override TClass Read(ref MessagePackReader reader, SerializationContext context)
             {
                 throw new NotSupportedException("This formatter only serializes IProgress<T> instances.");
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in TClass? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
             {
                 if (value is null)
                 {
@@ -679,7 +674,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
             [return: MaybeNull]
             [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-            public override TClass? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override TClass? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -692,7 +687,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return (TClass)this.formatter.FormatterProgressTracker.CreateProgress(this.formatter.JsonRpc, token, typeof(TClass), clientRequiresNamedArgs);
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in TClass? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
             {
                 if (value is null)
                 {
@@ -756,7 +751,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             /// </summary>
             private static readonly CommonString ValuesPropertyName = new(MessageFormatterEnumerableTracker.ValuesPropertyName);
 
-            public override IAsyncEnumerable<T>? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override IAsyncEnumerable<T>? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -771,7 +766,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 {
                     if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> stringKey))
                     {
-                        throw new NBMP.MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+                        throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
                     }
 
                     if (TokenPropertyName.TryRead(stringKey))
@@ -792,7 +787,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
 
             [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-            public override void Write(ref NBMP.MessagePackWriter writer, in IAsyncEnumerable<T>? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in IAsyncEnumerable<T>? value, SerializationContext context)
             {
                 Serialize_Shared(mainFormatter, ref writer, value, context);
             }
@@ -802,7 +797,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return CreateUndocumentedSchema(typeof(PreciseTypeConverter<T>));
             }
 
-            internal static void Serialize_Shared(NerdbankMessagePackFormatter mainFormatter, ref NBMP::MessagePackWriter writer, IAsyncEnumerable<T>? value, NBMP::SerializationContext context)
+            internal static void Serialize_Shared(NerdbankMessagePackFormatter mainFormatter, ref MessagePackWriter writer, IAsyncEnumerable<T>? value, SerializationContext context)
             {
                 if (value is null)
                 {
@@ -848,13 +843,13 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         private class GeneratorConverter<TClass, TElement>(NerdbankMessagePackFormatter mainFormatter) : MessagePackConverter<TClass> where TClass : IAsyncEnumerable<TElement>
 #pragma warning restore CA1812
         {
-            public override TClass Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override TClass Read(ref MessagePackReader reader, SerializationContext context)
             {
                 throw new NotSupportedException();
             }
 
             [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-            public override void Write(ref NBMP.MessagePackWriter writer, in TClass? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
             {
                 PreciseTypeConverter<TElement>.Serialize_Shared(mainFormatter, ref writer, value, context);
             }
@@ -905,7 +900,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             where T : class, IDuplexPipe
 #pragma warning restore CA1812
         {
-            public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -915,7 +910,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return (T)formatter.DuplexPipeTracker.GetPipe(reader.ReadUInt64());
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
             {
                 if (formatter.DuplexPipeTracker.GetULongToken(value) is { } token)
                 {
@@ -938,7 +933,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             where T : PipeReader
 #pragma warning restore CA1812
         {
-            public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -948,7 +943,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return (T)formatter.DuplexPipeTracker.GetPipeReader(reader.ReadUInt64());
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
             {
                 if (formatter.DuplexPipeTracker.GetULongToken(value) is { } token)
                 {
@@ -971,7 +966,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             where T : PipeWriter
 #pragma warning restore CA1812
         {
-            public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -981,7 +976,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return (T)formatter.DuplexPipeTracker.GetPipeWriter(reader.ReadUInt64());
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
             {
                 if (formatter.DuplexPipeTracker.GetULongToken(value) is { } token)
                 {
@@ -1011,7 +1006,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 this.formatter = formatter;
             }
 
-            public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
                 {
@@ -1021,7 +1016,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return (T)this.formatter.DuplexPipeTracker.GetPipe(reader.ReadUInt64()).AsStream();
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
             {
                 if (this.formatter.DuplexPipeTracker.GetULongToken(value?.UsePipe()) is { } token)
                 {
@@ -1050,14 +1045,14 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 #pragma warning restore CA1812
     {
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public override T? Read(ref MessagePackReader reader, SerializationContext context)
         {
             MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcContext.Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(ref reader);
             return token.HasValue ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
         }
 
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
         {
             if (value is null)
             {
@@ -1120,7 +1115,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             where T : Exception
 #pragma warning restore CA1812
         {
-            public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+            public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 Assumes.NotNull(formatter.JsonRpc);
                 if (reader.TryReadNil())
@@ -1147,7 +1142,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     for (int i = 0; i < memberCount; i++)
                     {
                         string? name = context.GetConverter<string>(context.TypeShapeProvider).Read(ref reader, context)
-                            ?? throw new NBMP::MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
+                            ?? throw new MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
 
                         // SerializationInfo.GetValue(string, typeof(object)) does not call our formatter,
                         // so the caller will get a boxed RawMessagePack struct in that case.
@@ -1166,7 +1161,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 }
             }
 
-            public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
+            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
             {
                 if (value is null)
                 {
@@ -1212,7 +1207,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class JsonRpcMessageConverter : NBMP::MessagePackConverter<JsonRpcMessage>
+    private class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
     {
         private readonly NerdbankMessagePackFormatter formatter;
 
@@ -1221,11 +1216,11 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             this.formatter = formatter;
         }
 
-        public override JsonRpcMessage? Read(ref NBMP.MessagePackReader reader, NBMP::SerializationContext context)
+        public override JsonRpcMessage? Read(ref MessagePackReader reader, SerializationContext context)
         {
             context.DepthStep();
 
-            NBMP::MessagePackReader readAhead = reader.CreatePeekReader();
+            MessagePackReader readAhead = reader.CreatePeekReader();
             int propertyCount = readAhead.ReadMapHeader();
             for (int i = 0; i < propertyCount; i++)
             {
@@ -1257,7 +1252,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             throw new UnrecognizedJsonRpcMessageException();
         }
 
-        public override void Write(ref NBMP.MessagePackWriter writer, in JsonRpcMessage? value, NBMP::SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in JsonRpcMessage? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
@@ -1282,13 +1277,13 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
         }
 
-        public override JsonObject? GetJsonSchema(NBMP::JsonSchemaContext context, ITypeShape typeShape)
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
         {
             return base.GetJsonSchema(context, typeShape);
         }
     }
 
-    private class JsonRpcRequestConverter : NBMP::MessagePackConverter<Protocol.JsonRpcRequest>
+    private class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
     {
         private readonly NerdbankMessagePackFormatter formatter;
 
@@ -1297,7 +1292,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             this.formatter = formatter;
         }
 
-        public override Protocol.JsonRpcRequest? Read(ref NBMP::MessagePackReader reader, NBMP::SerializationContext context)
+        public override Protocol.JsonRpcRequest? Read(ref MessagePackReader reader, SerializationContext context)
         {
             var result = new JsonRpcRequest(this.formatter)
             {
@@ -1335,7 +1330,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     // Parse out the arguments into a dictionary or array, but don't deserialize them because we don't yet know what types to deserialize them to.
                     switch (reader.NextMessagePackType)
                     {
-                        case NBMP::MessagePackType.Array:
+                        case MessagePackType.Array:
                             var positionalArgs = new ReadOnlySequence<byte>[reader.ReadArrayHeader()];
                             for (int i = 0; i < positionalArgs.Length; i++)
                             {
@@ -1344,7 +1339,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                             result.MsgPackPositionalArguments = positionalArgs;
                             break;
-                        case NBMP::MessagePackType.Map:
+                        case MessagePackType.Map:
                             int namedArgsCount = reader.ReadMapHeader();
                             var namedArgs = new Dictionary<string, ReadOnlySequence<byte>>(namedArgsCount);
                             for (int i = 0; i < namedArgsCount; i++)
@@ -1352,7 +1347,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                                 string? propertyName = context.GetConverter<string>(null).Read(ref reader, context);
                                 if (propertyName is null)
                                 {
-                                    throw new NBMP::MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
+                                    throw new MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
                                 }
 
                                 namedArgs.Add(propertyName, GetSliceForNextToken(ref reader, context));
@@ -1360,12 +1355,12 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                             result.MsgPackNamedArguments = namedArgs;
                             break;
-                        case NBMP::MessagePackType.Nil:
+                        case MessagePackType.Nil:
                             result.MsgPackPositionalArguments = Array.Empty<ReadOnlySequence<byte>>();
                             reader.ReadNil();
                             break;
-                        case NBMP::MessagePackType type:
-                            throw new NBMP::MessagePackSerializationException("Expected a map or array of arguments but got " + type);
+                        case MessagePackType type:
+                            throw new MessagePackSerializationException("Expected a map or array of arguments but got " + type);
                     }
 
                     result.MsgPackArguments = reader.Sequence.Slice(paramsTokenStartPosition, reader.Position);
@@ -1395,7 +1390,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return result;
         }
 
-        public override void Write(ref NBMP.MessagePackWriter writer, in Protocol.JsonRpcRequest? value, NBMP::SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcRequest? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
@@ -1504,12 +1499,12 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             topLevelPropertyBag?.WriteProperties(ref writer);
         }
 
-        public override JsonObject? GetJsonSchema(NBMP::JsonSchemaContext context, ITypeShape typeShape)
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
         {
             return CreateUndocumentedSchema(typeof(JsonRpcRequestConverter));
         }
 
-        private static void WriteTraceState(ref NBMP::MessagePackWriter writer, string traceState)
+        private static void WriteTraceState(ref MessagePackWriter writer, string traceState)
         {
             ReadOnlySpan<char> traceStateChars = traceState.AsSpan();
 
@@ -1536,7 +1531,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             // Write out the last one.
             WritePair(ref writer, traceStateChars);
 
-            static void WritePair(ref NBMP::MessagePackWriter writer, ReadOnlySpan<char> pair)
+            static void WritePair(ref MessagePackWriter writer, ReadOnlySpan<char> pair)
             {
                 int equalsIndex = pair.IndexOf('=');
                 ReadOnlySpan<char> key = pair.Slice(0, equalsIndex);
@@ -1546,7 +1541,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
         }
 
-        private static unsafe string ReadTraceState(ref NBMP::MessagePackReader reader, NBMP::SerializationContext context)
+        private static unsafe string ReadTraceState(ref MessagePackReader reader, SerializationContext context)
         {
             int elements = reader.ReadArrayHeader();
             if (elements % 2 != 0)
@@ -1574,7 +1569,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private partial class JsonRpcResultConverter : NBMP::MessagePackConverter<Protocol.JsonRpcResult>
+    private partial class JsonRpcResultConverter : MessagePackConverter<Protocol.JsonRpcResult>
     {
         private readonly NerdbankMessagePackFormatter formatter;
 
@@ -1583,7 +1578,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             this.formatter = formatter;
         }
 
-        public override Protocol.JsonRpcResult Read(ref NBMP.MessagePackReader reader, NBMP::SerializationContext context)
+        public override Protocol.JsonRpcResult Read(ref MessagePackReader reader, SerializationContext context)
         {
             var result = new JsonRpcResult(this.formatter, this.formatter.userDataContext)
             {
@@ -1628,7 +1623,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return result;
         }
 
-        public override void Write(ref NBMP.MessagePackWriter writer, in Protocol.JsonRpcResult? value, NBMP::SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcResult? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
@@ -1666,7 +1661,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             (topLevelPropertyBagMessage?.TopLevelPropertyBag as TopLevelPropertyBag)?.WriteProperties(ref writer);
         }
 
-        public override JsonObject? GetJsonSchema(NBMP::JsonSchemaContext context, ITypeShape typeShape)
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
         {
             return CreateUndocumentedSchema(typeof(JsonRpcResultConverter));
         }
@@ -1681,7 +1676,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             this.formatter = formatter;
         }
 
-        public override Protocol.JsonRpcError Read(ref NBMP::MessagePackReader reader, SerializationContext context)
+        public override Protocol.JsonRpcError Read(ref MessagePackReader reader, SerializationContext context)
         {
             var error = new JsonRpcError(this.formatter.rpcContext)
             {
@@ -1727,7 +1722,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return error;
         }
 
-        public override void Write(ref NBMP::MessagePackWriter writer, in Protocol.JsonRpcError? value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
@@ -1748,7 +1743,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             topLevelPropertyBag?.WriteProperties(ref writer);
         }
 
-        public override JsonObject? GetJsonSchema(NBMP::JsonSchemaContext context, ITypeShape typeShape)
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
         {
             return CreateUndocumentedSchema(typeof(JsonRpcErrorConverter));
         }
@@ -1767,7 +1762,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             this.formatter = formatter;
         }
 
-        public override Protocol.JsonRpcError.ErrorDetail Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public override Protocol.JsonRpcError.ErrorDetail Read(ref MessagePackReader reader, SerializationContext context)
         {
             var result = new JsonRpcError.ErrorDetail(this.formatter.userDataContext);
             context.DepthStep();
@@ -1802,7 +1797,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
 
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override void Write(ref NBMP.MessagePackWriter writer, in Protocol.JsonRpcError.ErrorDetail? value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError.ErrorDetail? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
@@ -1841,14 +1836,14 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
 
         /// <inheritdoc/>
-        public override void Write(ref NBMP.MessagePackWriter writer, in EventArgs? value, SerializationContext context)
+        public override void Write(ref MessagePackWriter writer, in EventArgs? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
             writer.WriteMapHeader(0);
         }
 
         /// <inheritdoc/>
-        public override EventArgs Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public override EventArgs Read(ref MessagePackReader reader, SerializationContext context)
         {
             reader.Skip(context);
             return EventArgs.Empty;
@@ -1862,7 +1857,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
     private class TraceParentConverter : MessagePackConverter<TraceParent>
     {
-        public unsafe override TraceParent Read(ref NBMP.MessagePackReader reader, SerializationContext context)
+        public unsafe override TraceParent Read(ref MessagePackReader reader, SerializationContext context)
         {
             if (reader.ReadArrayHeader() != 2)
             {
@@ -1892,7 +1887,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return result;
         }
 
-        public unsafe override void Write(ref NBMP.MessagePackWriter writer, in TraceParent value, SerializationContext context)
+        public unsafe override void Write(ref MessagePackWriter writer, in TraceParent value, SerializationContext context)
         {
             if (value.Version != 0)
             {
@@ -1959,7 +1954,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         /// Writes the properties tracked by this collection to a messagepack writer.
         /// </summary>
         /// <param name="writer">The writer to use.</param>
-        internal void WriteProperties(ref NBMP::MessagePackWriter writer)
+        internal void WriteProperties(ref MessagePackWriter writer)
         {
             if (this.inboundUnknownProperties is not null)
             {
@@ -1998,7 +1993,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
             if (this.inboundUnknownProperties.TryGetValue(name, out ReadOnlySequence<byte> serializedValue) is true)
             {
-                var reader = new NBMP::MessagePackReader(serializedValue);
+                var reader = new MessagePackReader(serializedValue);
                 value = this.formatterContext.Serializer.Deserialize<T>(ref reader, this.formatterContext.ShapeProvider);
                 return true;
             }
@@ -2052,7 +2047,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 {
                     if (this.formatter.ApplicableMethodAttributeOnDeserializingMethod?.UseSingleObjectParameterDeserialization ?? false)
                     {
-                        var reader = new NBMP::MessagePackReader(this.MsgPackArguments);
+                        var reader = new MessagePackReader(this.MsgPackArguments);
                         try
                         {
                             typedArguments[0] = this.formatter.userDataContext.Serializer.DeserializeObject(
@@ -2061,7 +2056,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                             return ArgumentMatchResult.Success;
                         }
-                        catch (NBMP::MessagePackSerializationException)
+                        catch (MessagePackSerializationException)
                         {
                             return ArgumentMatchResult.ParameterArgumentTypeMismatch;
                         }
@@ -2093,7 +2088,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return false;
             }
 
-            var reader = new NBMP::MessagePackReader(msgpackArgument);
+            var reader = new MessagePackReader(msgpackArgument);
             using (this.formatter.TrackDeserialization(this))
             {
                 try
@@ -2104,7 +2099,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                     return true;
                 }
-                catch (NBMP::MessagePackSerializationException ex)
+                catch (MessagePackSerializationException ex)
                 {
                     if (this.formatter.JsonRpc?.TraceSource.Switch.ShouldTrace(TraceEventType.Warning) ?? false)
                     {
@@ -2158,14 +2153,14 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return this.MsgPackResult.IsEmpty
                 ? (T)this.Result!
                 : this.serializerOptions.Serializer.Deserialize<T>(this.MsgPackResult, this.serializerOptions.ShapeProvider)
-                ?? throw new NBMP::MessagePackSerializationException(Resources.FailureDeserializingJsonRpc);
+                ?? throw new MessagePackSerializationException(Resources.FailureDeserializingJsonRpc);
         }
 
         protected internal override void SetExpectedResultType(Type resultType)
         {
             Verify.Operation(!this.MsgPackResult.IsEmpty, "Result is no longer available or has already been deserialized.");
 
-            var reader = new NBMP::MessagePackReader(this.MsgPackResult);
+            var reader = new MessagePackReader(this.MsgPackResult);
             try
             {
                 using (this.formatter.TrackDeserialization(this))
@@ -2177,7 +2172,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                 this.MsgPackResult = default;
             }
-            catch (NBMP::MessagePackSerializationException ex)
+            catch (MessagePackSerializationException ex)
             {
                 // This was a best effort anyway. We'll throw again later at a more convenient time for JsonRpc.
                 this.resultDeserializationException = ex;
@@ -2240,15 +2235,15 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     return this.Data;
                 }
 
-                var reader = new NBMP::MessagePackReader(this.MsgPackData);
+                var reader = new MessagePackReader(this.MsgPackData);
                 try
                 {
                     return this.serializerOptions.Serializer.DeserializeObject(
                         ref reader,
                         this.serializerOptions.ShapeProvider.Resolve(dataType))
-                        ?? throw new NBMP::MessagePackSerializationException(Resources.FailureDeserializingJsonRpc);
+                        ?? throw new MessagePackSerializationException(Resources.FailureDeserializingJsonRpc);
                 }
-                catch (NBMP::MessagePackSerializationException)
+                catch (MessagePackSerializationException)
                 {
                     // Deserialization failed. Try returning array/dictionary based primitive objects.
                     try
@@ -2257,7 +2252,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                         // TODO: Which Shape Provider to use?
                         return this.serializerOptions.Serializer.Deserialize<object>(this.MsgPackData, this.serializerOptions.ShapeProvider);
                     }
-                    catch (NBMP::MessagePackSerializationException)
+                    catch (MessagePackSerializationException)
                     {
                         return null;
                     }
@@ -2277,23 +2272,23 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class FormatterContext(NBMP::MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
+    internal class FormatterContext(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
     {
-        public NBMP::MessagePackSerializer Serializer => serializer;
+        public MessagePackSerializer Serializer => serializer;
 
         public ITypeShapeProvider ShapeProvider => shapeProvider;
 
-        public T? Deserialize<T>(ref NBMP.MessagePackReader reader, CancellationToken cancellationToken = default)
+        public T? Deserialize<T>(ref MessagePackReader reader, CancellationToken cancellationToken = default)
         {
             return serializer.Deserialize<T>(ref reader, shapeProvider, cancellationToken);
         }
 
-        public void Serialize<T>(ref NBMP.MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
+        public void Serialize<T>(ref MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
         {
             serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
         }
 
-        internal void SerializeObject(ref NBMP.MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
+        internal void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
         {
             serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
         }
