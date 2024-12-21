@@ -436,62 +436,63 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     {
         // Add our own resolvers to fill in specialized behavior if the user doesn't provide/override it by their own resolver.
         userDataContext.Serializer.RegisterConverter(RequestIdConverter.Instance);
-        userDataContext.Serializer.RegisterConverter(RawMessagePackConverter.Instance);
         userDataContext.Serializer.RegisterConverter(EventArgsConverter.Instance);
     }
 
     private class MessagePackFormatterConverter : IFormatterConverter
     {
-        private readonly FormatterContext options;
+        private readonly FormatterContext context;
 
-        internal MessagePackFormatterConverter(FormatterContext options)
+        internal MessagePackFormatterConverter(FormatterContext formatterContext)
         {
-            this.options = options;
+            this.context = formatterContext;
         }
 
 #pragma warning disable CS8766 // This method may in fact return null, and no one cares.
         public object? Convert(object value, Type type)
 #pragma warning restore CS8766
-            => ((RawMessagePack)value).Deserialize(type, this.options);
+        {
+            return this.context.DeserializeObject((RawMessagePack)value, type);
+        }
 
         public object Convert(object value, TypeCode typeCode)
         {
             return typeCode switch
             {
-                TypeCode.Object => ((RawMessagePack)value).Deserialize<object>(this.options),
+                TypeCode.Object => this.context.Deserialize<object>((RawMessagePack)value),
                 _ => ExceptionSerializationHelpers.Convert(this, value, typeCode),
             };
         }
 
-        public bool ToBoolean(object value) => ((RawMessagePack)value).Deserialize<bool>(this.options);
+        public bool ToBoolean(object value) => this.context.Deserialize<bool>((RawMessagePack)value);
 
-        public byte ToByte(object value) => ((RawMessagePack)value).Deserialize<byte>(this.options);
+        public byte ToByte(object value) => this.context.Deserialize<byte>((RawMessagePack)value);
 
-        public char ToChar(object value) => ((RawMessagePack)value).Deserialize<char>(this.options);
+        public char ToChar(object value) => this.context.Deserialize<char>((RawMessagePack)value);
 
-        public DateTime ToDateTime(object value) => ((RawMessagePack)value).Deserialize<DateTime>(this.options);
+        public DateTime ToDateTime(object value) => this.context.Deserialize<DateTime>((RawMessagePack)value);
 
-        public decimal ToDecimal(object value) => ((RawMessagePack)value).Deserialize<decimal>(this.options);
+        public decimal ToDecimal(object value) => this.context.Deserialize<decimal>((RawMessagePack)value);
 
-        public double ToDouble(object value) => ((RawMessagePack)value).Deserialize<double>(this.options);
+        public double ToDouble(object value) => this.context.Deserialize<double>((RawMessagePack)value);
 
-        public short ToInt16(object value) => ((RawMessagePack)value).Deserialize<short>(this.options);
+        public short ToInt16(object value) => this.context.Deserialize<short>((RawMessagePack)value);
 
-        public int ToInt32(object value) => ((RawMessagePack)value).Deserialize<int>(this.options);
+        public int ToInt32(object value) => this.context.Deserialize<int>((RawMessagePack)value);
 
-        public long ToInt64(object value) => ((RawMessagePack)value).Deserialize<long>(this.options);
+        public long ToInt64(object value) => this.context.Deserialize<long>((RawMessagePack)value);
 
-        public sbyte ToSByte(object value) => ((RawMessagePack)value).Deserialize<sbyte>(this.options);
+        public sbyte ToSByte(object value) => this.context.Deserialize<sbyte>((RawMessagePack)value);
 
-        public float ToSingle(object value) => ((RawMessagePack)value).Deserialize<float>(this.options);
+        public float ToSingle(object value) => this.context.Deserialize<float>((RawMessagePack)value);
 
-        public string? ToString(object value) => value is null ? null : ((RawMessagePack)value).Deserialize<string?>(this.options);
+        public string? ToString(object value) => value is null ? null : this.context.Deserialize<string?>((RawMessagePack)value);
 
-        public ushort ToUInt16(object value) => ((RawMessagePack)value).Deserialize<ushort>(this.options);
+        public ushort ToUInt16(object value) => this.context.Deserialize<ushort>((RawMessagePack)value);
 
-        public uint ToUInt32(object value) => ((RawMessagePack)value).Deserialize<uint>(this.options);
+        public uint ToUInt32(object value) => this.context.Deserialize<uint>((RawMessagePack)value);
 
-        public ulong ToUInt64(object value) => ((RawMessagePack)value).Deserialize<ulong>(this.options);
+        public ulong ToUInt64(object value) => this.context.Deserialize<ulong>((RawMessagePack)value);
     }
 
     /// <summary>
@@ -570,32 +571,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             "type": ["string", { "type": "integer", "format": "int64" }]
         }
         """)?.AsObject();
-    }
-
-    private class RawMessagePackConverter : MessagePackConverter<RawMessagePack>
-    {
-        internal static readonly RawMessagePackConverter Instance = new();
-
-        private RawMessagePackConverter()
-        {
-        }
-
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override RawMessagePack Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            return RawMessagePack.ReadRaw(ref reader, copy: false, context);
-        }
-
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
-        public override void Write(ref MessagePackWriter writer, in RawMessagePack value, SerializationContext context)
-        {
-            value.WriteRaw(ref writer);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(RawMessagePackConverter));
-        }
     }
 
     private class ProgressConverterResolver
@@ -682,7 +657,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 }
 
                 Assumes.NotNull(this.formatter.JsonRpc);
-                RawMessagePack token = RawMessagePack.ReadRaw(ref reader, copy: true, context);
+                RawMessagePack token = reader.ReadRaw(context);
                 bool clientRequiresNamedArgs = this.formatter.ApplicableMethodAttributeOnDeserializingMethod?.ClientRequiresNamedArguments is true;
                 return (TClass)this.formatter.FormatterProgressTracker.CreateProgress(this.formatter.JsonRpc, token, typeof(TClass), clientRequiresNamedArgs);
             }
@@ -759,7 +734,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 }
 
                 context.DepthStep();
-                RawMessagePack token = default;
+                RawMessagePack? token = default;
                 IReadOnlyList<T>? initialElements = null;
                 int propertyCount = reader.ReadMapHeader();
                 for (int i = 0; i < propertyCount; i++)
@@ -771,7 +746,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
                     if (TokenPropertyName.TryRead(stringKey))
                     {
-                        token = RawMessagePack.ReadRaw(ref reader, copy: true, context);
+                        token = reader.ReadRaw(context);
                     }
                     else if (ValuesPropertyName.TryRead(stringKey))
                     {
@@ -783,7 +758,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     }
                 }
 
-                return mainFormatter.EnumerableTracker.CreateEnumerableProxy(token.IsDefault ? null : token, initialElements);
+                return mainFormatter.EnumerableTracker.CreateEnumerableProxy(token.HasValue ? token : null, initialElements);
             }
 
             [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
@@ -1148,7 +1123,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                         // so the caller will get a boxed RawMessagePack struct in that case.
                         // Although we can't do much about *that* in general, we can at least ensure that null values
                         // are represented as null instead of this boxed struct.
-                        var value = reader.TryReadNil() ? null : (object)RawMessagePack.ReadRaw(ref reader, false, context);
+                        var value = reader.TryReadNil() ? null : (object)reader.ReadRaw(context);
 
                         info.AddSafeValue(name, value);
                     }
@@ -2269,28 +2244,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 // deserialization later when the buffer may be recycled on another thread.
                 this.MsgPackData = default;
             }
-        }
-    }
-
-    internal class FormatterContext(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
-    {
-        public MessagePackSerializer Serializer => serializer;
-
-        public ITypeShapeProvider ShapeProvider => shapeProvider;
-
-        public T? Deserialize<T>(ref MessagePackReader reader, CancellationToken cancellationToken = default)
-        {
-            return serializer.Deserialize<T>(ref reader, shapeProvider, cancellationToken);
-        }
-
-        public void Serialize<T>(ref MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
-        {
-            serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
-        }
-
-        internal void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
-        {
-            serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
         }
     }
 }
