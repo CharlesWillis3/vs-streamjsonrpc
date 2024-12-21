@@ -100,7 +100,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
     private readonly PipeConverterResolver pipeConverterResolver;
 
-    private readonly MessagePackExceptionResolver exceptionResolver;
+    private readonly MessagePackExceptionConverterResolver exceptionResolver;
 
     private readonly ToStringHelper serializationToStringHelper = new();
 
@@ -137,9 +137,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         this.progressConverterResolver = new ProgressConverterResolver(this);
         this.asyncEnumerableConverterResolver = new AsyncEnumerableConverterResolver(this);
         this.pipeConverterResolver = new PipeConverterResolver(this);
-
-        // TODO: Convert these to converter resolvers?
-        this.exceptionResolver = new MessagePackExceptionResolver(this);
+        this.exceptionResolver = new MessagePackExceptionConverterResolver(this);
 
         FormatterContext userDataContext = new(
             new()
@@ -445,16 +443,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         userDataContext.Serializer.RegisterConverter(RequestIdConverter.Instance);
         userDataContext.Serializer.RegisterConverter(RawMessagePackConverter.Instance);
         userDataContext.Serializer.RegisterConverter(EventArgsConverter.Instance);
-
-        var resolvers = new IFormatterResolver[]
-        {
-            // Support for marshalled objects.
-            // new RpcMarshalableResolver(this)
-
-            // TODO: Add support for exotic types
-            // Stateful or per-connection resolvers.
-            this.exceptionResolver,
-        };
     }
 
     private class MessagePackFormatterConverter : IFormatterConverter
@@ -913,10 +901,8 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
 
 #pragma warning disable CA1812
-#pragma warning disable NBMsgPack032 // Converters should override GetJsonSchema
         private class DuplexPipeConverter<T>(NerdbankMessagePackFormatter formatter) : MessagePackConverter<T>
             where T : class, IDuplexPipe
-#pragma warning restore NBMsgPack032 // Converters should override GetJsonSchema
 #pragma warning restore CA1812
         {
             public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
@@ -940,13 +926,16 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     writer.WriteNil();
                 }
             }
+
+            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+            {
+                return CreateUndocumentedSchema(typeof(DuplexPipeConverter<T>));
+            }
         }
 
 #pragma warning disable CA1812
-#pragma warning disable NBMsgPack032 // Converters should override GetJsonSchema
         private class PipeReaderConverter<T>(NerdbankMessagePackFormatter formatter) : MessagePackConverter<T>
             where T : PipeReader
-#pragma warning restore NBMsgPack032 // Converters should override GetJsonSchema
 #pragma warning restore CA1812
         {
             public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
@@ -970,13 +959,16 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     writer.WriteNil();
                 }
             }
+
+            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+            {
+                return CreateUndocumentedSchema(typeof(PipeReaderConverter<T>));
+            }
         }
 
 #pragma warning disable CA1812
-#pragma warning disable NBMsgPack032 // Converters should override GetJsonSchema
         private class PipeWriterConverter<T>(NerdbankMessagePackFormatter formatter) : MessagePackConverter<T>
             where T : PipeWriter
-#pragma warning restore NBMsgPack032 // Converters should override GetJsonSchema
 #pragma warning restore CA1812
         {
             public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
@@ -1000,13 +992,16 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     writer.WriteNil();
                 }
             }
+
+            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+            {
+                return CreateUndocumentedSchema(typeof(PipeWriterConverter<T>));
+            }
         }
 
 #pragma warning disable CA1812
-#pragma warning disable NBMsgPack032 // Converters should override GetJsonSchema
         private class StreamConverter<T> : MessagePackConverter<T>
             where T : Stream
-#pragma warning restore NBMsgPack032 // Converters should override GetJsonSchema
 #pragma warning restore CA1812
         {
             private readonly NerdbankMessagePackFormatter formatter;
@@ -1036,6 +1031,11 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 {
                     writer.WriteNil();
                 }
+            }
+
+            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+            {
+                return CreateUndocumentedSchema(typeof(StreamConverter<T>));
             }
         }
     }
@@ -1085,48 +1085,38 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// 2. Be attributed with <see cref="SerializableAttribute"/>
     /// 3. Declare a constructor with a signature of (<see cref="SerializationInfo"/>, <see cref="StreamingContext"/>).
     /// </remarks>
-    private class MessagePackExceptionResolver : IFormatterResolver
+    private class MessagePackExceptionConverterResolver
     {
         /// <summary>
         /// Tracks recursion count while serializing or deserializing an exception.
         /// </summary>
         /// <devremarks>
-        /// This is placed here (<em>outside</em> the generic <see cref="ExceptionFormatter{T}"/> class)
+        /// This is placed here (<em>outside</em> the generic <see cref="ExceptionConverter{T}"/> class)
         /// so that it's one counter shared across all exception types that may be serialized or deserialized.
         /// </devremarks>
         private static ThreadLocal<int> exceptionRecursionCounter = new();
 
         private readonly object[] formatterActivationArgs;
 
-        private readonly Dictionary<Type, object?> formatterCache = new Dictionary<Type, object?>();
-
-        internal MessagePackExceptionResolver(MessagePackFormatter formatter)
+        internal MessagePackExceptionConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.formatterActivationArgs = new object[] { formatter };
         }
 
-        public IMessagePackFormatter<T>? GetFormatter<T>()
+        public MessagePackConverter<T> GetConverter<T>()
         {
-            lock (this.formatterCache)
+            MessagePackConverter<T>? formatter = null;
+            if (typeof(Exception).IsAssignableFrom(typeof(T)) && typeof(T).GetCustomAttribute<SerializableAttribute>() is object)
             {
-                if (this.formatterCache.TryGetValue(typeof(T), out object? cachedFormatter))
-                {
-                    return (IMessagePackFormatter<T>?)cachedFormatter;
-                }
-
-                IMessagePackFormatter<T>? formatter = null;
-                if (typeof(Exception).IsAssignableFrom(typeof(T)) && typeof(T).GetCustomAttribute<SerializableAttribute>() is object)
-                {
-                    formatter = (IMessagePackFormatter<T>)Activator.CreateInstance(typeof(ExceptionFormatter<>).MakeGenericType(typeof(T)), this.formatterActivationArgs)!;
-                }
-
-                this.formatterCache.Add(typeof(T), formatter);
-                return formatter;
+                formatter = (MessagePackConverter<T>)Activator.CreateInstance(typeof(ExceptionConverter<>).MakeGenericType(typeof(T)), this.formatterActivationArgs)!;
             }
+
+            // TODO: Improve Exception
+            return formatter ?? throw new NotSupportedException();
         }
 
 #pragma warning disable CA1812
-        private partial class ExceptionFormatter<T>(NerdbankMessagePackFormatter formatter) : MessagePackConverter<T>
+        private partial class ExceptionConverter<T>(NerdbankMessagePackFormatter formatter) : MessagePackConverter<T>
             where T : Exception
 #pragma warning restore CA1812
         {
@@ -1202,10 +1192,10 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                     {
                         writer.Write(element.Name);
 #pragma warning disable NBMsgPack030 // Converters should not call top-level `MessagePackSerializer` methods
-                        formatter.rpcContext.Serializer.SerializeObject(
+                        formatter.rpcContext.SerializeObject(
                             ref writer,
                             element.Value,
-                            formatter.rpcContext.ShapeProvider.Resolve(element.ObjectType));
+                            element.ObjectType);
 #pragma warning restore NBMsgPack030 // Converters should not call top-level `MessagePackSerializer` methods
                     }
                 }
@@ -1213,6 +1203,11 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 {
                     exceptionRecursionCounter.Value--;
                 }
+            }
+
+            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+            {
+                return CreateUndocumentedSchema(typeof(ExceptionConverter<T>));
             }
         }
     }
@@ -2296,6 +2291,11 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         public void Serialize<T>(ref NBMP.MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
         {
             serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
+        }
+
+        internal void SerializeObject(ref NBMP.MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
+        {
+            serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
         }
     }
 }

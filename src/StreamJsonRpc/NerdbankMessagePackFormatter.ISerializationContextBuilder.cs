@@ -2,9 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
-using System.Collections.ObjectModel;
 using System.IO.Pipelines;
-using MessagePack.Formatters;
 using Nerdbank.MessagePack;
 using PolyType;
 using PolyType.Abstractions;
@@ -83,6 +81,20 @@ public sealed partial class NerdbankMessagePackFormatter
         /// <typeparam name="TStream">The type of the stream to register.</typeparam>
         void RegisterStreamType<TStream>()
             where TStream : Stream;
+
+        /// <summary>
+        /// Registers a type that can be marshaled over RPC.
+        /// </summary>
+        /// <typeparam name="T">The type to register.</typeparam>
+        void RegisterRpcMarshalableType<T>()
+            where T : class;
+
+        /// <summary>
+        /// Registers a custom exception type for serialization.
+        /// </summary>
+        /// <typeparam name="TException">The type of the exception to register.</typeparam>
+        void RegisterExceptionType<TException>()
+            where TException : Exception;
 
         /// <summary>
         /// Adds a type shape provider to the formatter context.
@@ -170,6 +182,13 @@ public sealed partial class NerdbankMessagePackFormatter
             where TStream : Stream
         {
             MessagePackConverter<TStream> converter = formatter.pipeConverterResolver.GetConverter<TStream>();
+            baseContext.Serializer.RegisterConverter(converter);
+        }
+
+        public void RegisterExceptionType<TException>()
+            where TException : Exception
+        {
+            MessagePackConverter<TException> converter = formatter.exceptionResolver.GetConverter<TException>();
             baseContext.Serializer.RegisterConverter(converter);
         }
 
