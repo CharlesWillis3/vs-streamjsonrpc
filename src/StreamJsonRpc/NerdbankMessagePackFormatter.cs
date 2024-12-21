@@ -10,6 +10,7 @@ using System.Globalization;
 using System.IO.Pipelines;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -97,7 +98,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
     private readonly AsyncEnumerableConverterResolver asyncEnumerableConverterResolver;
 
-    private readonly PipeFormatterResolver pipeFormatterResolver;
+    private readonly PipeConverterResolver pipeConverterResolver;
 
     private readonly MessagePackExceptionResolver exceptionResolver;
 
@@ -135,9 +136,9 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         // Create the specialized formatters/resolvers that we will inject into the chain for user data.
         this.progressConverterResolver = new ProgressConverterResolver(this);
         this.asyncEnumerableConverterResolver = new AsyncEnumerableConverterResolver(this);
+        this.pipeConverterResolver = new PipeConverterResolver(this);
 
         // TODO: Convert these to converter resolvers?
-        this.pipeFormatterResolver = new PipeFormatterResolver(this);
         this.exceptionResolver = new MessagePackExceptionResolver(this);
 
         FormatterContext userDataContext = new(
@@ -178,7 +179,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     {
         Requires.NotNull(configure, nameof(configure));
 
-        var builder = new FormatterContextBuilder(this, this.userDataContext.Serializer);
+        var builder = new FormatterContextBuilder(this, this.userDataContext);
         configure(builder);
 
         FormatterContext context = builder.Build();
@@ -452,7 +453,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
 
             // TODO: Add support for exotic types
             // Stateful or per-connection resolvers.
-            this.pipeFormatterResolver,
             this.exceptionResolver,
         };
     }
@@ -619,33 +619,26 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     {
         private readonly NerdbankMessagePackFormatter mainFormatter;
 
-        private readonly Dictionary<Type, IMessagePackConverter?> progressConverters = [];
-
         internal ProgressConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.mainFormatter = formatter;
         }
 
-        public MessagePackConverter<T>? GetConverter<T>()
+        public MessagePackConverter<T> GetConverter<T>()
         {
-            lock (this.progressConverters)
+            MessagePackConverter<T>? converter = default;
+
+            if (MessageFormatterProgressTracker.CanDeserialize(typeof(T)))
             {
-                if (!this.progressConverters.TryGetValue(typeof(T), out IMessagePackConverter? converter))
-                {
-                    if (MessageFormatterProgressTracker.CanDeserialize(typeof(T)))
-                    {
-                        converter = new PreciseTypeConverter<T>(this.mainFormatter);
-                    }
-                    else if (MessageFormatterProgressTracker.CanSerialize(typeof(T)))
-                    {
-                        converter = new ProgressClientConverter<T>(this.mainFormatter);
-                    }
-
-                    this.progressConverters.Add(typeof(T), converter);
-                }
-
-                return (MessagePackConverter<T>?)converter;
+                converter = new PreciseTypeConverter<T>(this.mainFormatter);
             }
+            else if (MessageFormatterProgressTracker.CanSerialize(typeof(T)))
+            {
+                converter = new ProgressClientConverter<T>(this.mainFormatter);
+            }
+
+            // TODO: Improve Exception
+            return converter ?? throw new NotSupportedException();
         }
 
         /// <summary>
@@ -735,33 +728,26 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     {
         private readonly NerdbankMessagePackFormatter mainFormatter;
 
-        private readonly Dictionary<Type, IMessagePackConverter?> enumerableFormatters = [];
-
         internal AsyncEnumerableConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.mainFormatter = formatter;
         }
 
-        public MessagePackConverter<T>? GetConverter<T>()
+        public MessagePackConverter<T> GetConverter<T>()
         {
-            lock (this.enumerableFormatters)
+            MessagePackConverter<T>? converter = default;
+
+            if (TrackerHelpers<IAsyncEnumerable<int>>.IsActualInterfaceMatch(typeof(T)))
             {
-                if (!this.enumerableFormatters.TryGetValue(typeof(T), out IMessagePackConverter? converter))
-                {
-                    if (TrackerHelpers<IAsyncEnumerable<int>>.IsActualInterfaceMatch(typeof(T)))
-                    {
-                        converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PreciseTypeConverter<>).MakeGenericType(typeof(T).GenericTypeArguments[0]), new object[] { this.mainFormatter });
-                    }
-                    else if (TrackerHelpers<IAsyncEnumerable<int>>.FindInterfaceImplementedBy(typeof(T)) is { } iface)
-                    {
-                        converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(GeneratorConverter<,>).MakeGenericType(typeof(T), iface.GenericTypeArguments[0]), new object[] { this.mainFormatter });
-                    }
-
-                    this.enumerableFormatters.Add(typeof(T), converter);
-                }
-
-                return (MessagePackConverter<T>?)converter;
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PreciseTypeConverter<>).MakeGenericType(typeof(T).GenericTypeArguments[0]), new object[] { this.mainFormatter });
             }
+            else if (TrackerHelpers<IAsyncEnumerable<int>>.FindInterfaceImplementedBy(typeof(T)) is { } iface)
+            {
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(GeneratorConverter<,>).MakeGenericType(typeof(T), iface.GenericTypeArguments[0]), new object[] { this.mainFormatter });
+            }
+
+            // TODO: Improve Exception
+            return converter ?? throw new NotSupportedException();
         }
 
         /// <summary>
@@ -892,45 +878,38 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class PipeFormatterResolver : IFormatterResolver
+    private class PipeConverterResolver
     {
         private readonly NerdbankMessagePackFormatter mainFormatter;
 
-        private readonly Dictionary<Type, IMessagePackFormatter?> pipeFormatters = [];
-
-        internal PipeFormatterResolver(NerdbankMessagePackFormatter formatter)
+        internal PipeConverterResolver(NerdbankMessagePackFormatter formatter)
         {
             this.mainFormatter = formatter;
         }
 
-        public IMessagePackFormatter<T>? GetFormatter<T>()
+        public MessagePackConverter<T> GetConverter<T>()
         {
-            lock (this.pipeFormatters)
+            MessagePackConverter<T>? converter = default;
+
+            if (typeof(IDuplexPipe).IsAssignableFrom(typeof(T)))
             {
-                if (!this.pipeFormatters.TryGetValue(typeof(T), out IMessagePackFormatter? formatter))
-                {
-                    if (typeof(IDuplexPipe).IsAssignableFrom(typeof(T)))
-                    {
-                        formatter = (IMessagePackFormatter)Activator.CreateInstance(typeof(DuplexPipeConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
-                    }
-                    else if (typeof(PipeReader).IsAssignableFrom(typeof(T)))
-                    {
-                        formatter = (IMessagePackFormatter)Activator.CreateInstance(typeof(PipeReaderConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
-                    }
-                    else if (typeof(PipeWriter).IsAssignableFrom(typeof(T)))
-                    {
-                        formatter = (IMessagePackFormatter)Activator.CreateInstance(typeof(PipeWriterConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
-                    }
-                    else if (typeof(Stream).IsAssignableFrom(typeof(T)))
-                    {
-                        formatter = (IMessagePackFormatter)Activator.CreateInstance(typeof(StreamConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
-                    }
-
-                    this.pipeFormatters.Add(typeof(T), formatter);
-                }
-
-                return (IMessagePackFormatter<T>?)formatter;
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(DuplexPipeConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
             }
+            else if (typeof(PipeReader).IsAssignableFrom(typeof(T)))
+            {
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PipeReaderConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
+            }
+            else if (typeof(PipeWriter).IsAssignableFrom(typeof(T)))
+            {
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PipeWriterConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
+            }
+            else if (typeof(Stream).IsAssignableFrom(typeof(T)))
+            {
+                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(StreamConverter<>).MakeGenericType(typeof(T)), this.mainFormatter)!;
+            }
+
+            // TODO: Improve Exception
+            return converter ?? throw new NotSupportedException();
         }
 
 #pragma warning disable CA1812
@@ -1061,71 +1040,24 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class RpcMarshalableResolver : IFormatterResolver
-    {
-        private readonly NerdbankMessagePackFormatter formatter;
-        private readonly Dictionary<Type, object> formatters = new Dictionary<Type, object>();
-
-        internal RpcMarshalableResolver(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public IMessagePackFormatter<T>? GetFormatter<T>()
-        {
-            if (typeof(T).IsValueType)
-            {
-                return null;
-            }
-
-            lock (this.formatters)
-            {
-                if (this.formatters.TryGetValue(typeof(T), out object? cachedFormatter))
-                {
-                    return (IMessagePackFormatter<T>)cachedFormatter;
-                }
-            }
-
-            if (MessageFormatterRpcMarshaledContextTracker.TryGetMarshalOptionsForType(
-                typeof(T),
-                out JsonRpcProxyOptions? proxyOptions,
-                out JsonRpcTargetOptions? targetOptions,
-                out RpcMarshalableAttribute? attribute))
-            {
-                object formatter = Activator.CreateInstance(
-                    typeof(RpcMarshalableFormatter<>).MakeGenericType(typeof(T)),
-                    this.formatter,
-                    proxyOptions,
-                    targetOptions,
-                    attribute)!;
-
-                lock (this.formatters)
-                {
-                    if (!this.formatters.TryGetValue(typeof(T), out object? cachedFormatter))
-                    {
-                        this.formatters.Add(typeof(T), cachedFormatter = formatter);
-                    }
-
-                    return (IMessagePackFormatter<T>)cachedFormatter;
-                }
-            }
-
-            return null;
-        }
-    }
-
 #pragma warning disable CA1812
-    private class RpcMarshalableFormatter<T>(NerdbankMessagePackFormatter messagePackFormatter, JsonRpcProxyOptions proxyOptions, JsonRpcTargetOptions targetOptions, RpcMarshalableAttribute rpcMarshalableAttribute) : IMessagePackFormatter<T?>
+    private class RpcMarshalableConverter<T>(
+        NerdbankMessagePackFormatter formatter,
+        JsonRpcProxyOptions proxyOptions,
+        JsonRpcTargetOptions targetOptions,
+        RpcMarshalableAttribute rpcMarshalableAttribute) : MessagePackConverter<T>
         where T : class
 #pragma warning restore CA1812
     {
-        public T? Deserialize(ref MessagePack.MessagePackReader reader, MessagePackSerializerOptions options)
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+        public override T? Read(ref NBMP.MessagePackReader reader, SerializationContext context)
         {
-            MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = MessagePack.MessagePackSerializer.Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(ref reader, options);
-            return token.HasValue ? (T?)messagePackFormatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
+            MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcContext.Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(ref reader);
+            return token.HasValue ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
         }
 
-        public void Serialize(ref MessagePack.MessagePackWriter writer, T? value, MessagePackSerializerOptions options)
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+        public override void Write(ref NBMP.MessagePackWriter writer, in T? value, SerializationContext context)
         {
             if (value is null)
             {
@@ -1133,9 +1065,14 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
             else
             {
-                MessageFormatterRpcMarshaledContextTracker.MarshalToken token = messagePackFormatter.RpcMarshaledContextTracker.GetToken(value, targetOptions, typeof(T), rpcMarshalableAttribute);
-                MessagePack.MessagePackSerializer.Serialize(ref writer, token, options);
+                MessageFormatterRpcMarshaledContextTracker.MarshalToken token = formatter.RpcMarshaledContextTracker.GetToken(value, targetOptions, typeof(T), rpcMarshalableAttribute);
+                formatter.rpcContext.Serialize(ref writer, token);
             }
+        }
+
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(RpcMarshalableConverter<T>));
         }
     }
 
@@ -2345,101 +2282,20 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private record FormatterContext(NBMP::MessagePackSerializer Serializer, ITypeShapeProvider ShapeProvider);
-
-    private class FormatterContextBuilder(NerdbankMessagePackFormatter formatter, NBMP::MessagePackSerializer serializer) : IFormatterContextBuilder
+    private class FormatterContext(NBMP::MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
     {
-        private readonly CompositeTypeShapeProviderBuilder providerBuilder = new();
+        public NBMP::MessagePackSerializer Serializer => serializer;
 
-        public ICompositeTypeShapeProviderBuilder TypeShapeProviderBuilder => this.providerBuilder;
+        public ITypeShapeProvider ShapeProvider => shapeProvider;
 
-        public void RegisterConverter<T>(NBMP::MessagePackConverter<T> converter) => serializer.RegisterConverter(converter);
-
-        public void RegisterProgressTypeConverter<TProgress>()
+        public T? Deserialize<T>(ref NBMP.MessagePackReader reader, CancellationToken cancellationToken = default)
         {
-            // TODO: Improve Exception
-            MessagePackConverter<TProgress> converter = formatter.progressConverterResolver.GetConverter<TProgress>()
-                ?? throw new InvalidOperationException("No converter found for " + typeof(TProgress).FullName);
-
-            serializer.RegisterConverter(converter);
+            return serializer.Deserialize<T>(ref reader, shapeProvider, cancellationToken);
         }
 
-        public void RegisterAsyncEnumerableTypeConverter<TElement>()
+        public void Serialize<T>(ref NBMP.MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
         {
-            MessagePackConverter<TElement> converter = formatter.asyncEnumerableConverterResolver.GetConverter<TElement>()
-                ?? throw new InvalidOperationException("No converter found for " + typeof(TElement).FullName);
-
-            serializer.RegisterConverter(converter);
-        }
-
-        public void RegisterKnownSubTypes<TBase>(NBMP::KnownSubTypeMapping<TBase> mapping)
-        {
-            Requires.NotNull(mapping, nameof(mapping));
-            serializer.RegisterKnownSubTypes(mapping);
-        }
-
-        internal FormatterContext Build() => new(serializer, this.providerBuilder.Build());
-    }
-
-    private class CompositeTypeShapeProviderBuilder : ICompositeTypeShapeProviderBuilder
-    {
-        private readonly List<ITypeShapeProvider> providers = [];
-
-        public ICompositeTypeShapeProviderBuilder Add(ITypeShapeProvider provider)
-        {
-            this.providers.Add(provider);
-            return this;
-        }
-
-        public ICompositeTypeShapeProviderBuilder AddRange(IEnumerable<ITypeShapeProvider> providers)
-        {
-            this.providers.AddRange(providers);
-            return this;
-        }
-
-        public ICompositeTypeShapeProviderBuilder AddReflectionTypeShapeProvider(bool useReflectionEmit)
-        {
-            ReflectionTypeShapeProviderOptions options = new()
-            {
-                UseReflectionEmit = useReflectionEmit,
-            };
-
-            this.providers.Add(ReflectionTypeShapeProvider.Create(options));
-            return this;
-        }
-
-        public ITypeShapeProvider Build()
-        {
-            return this.providers.Count switch
-            {
-                0 => ReflectionTypeShapeProvider.Default,
-                1 => this.providers[0],
-                _ => new CompositeTypeShapeProvider(this.providers.AsReadOnly()),
-            };
-        }
-
-        private class CompositeTypeShapeProvider : ITypeShapeProvider
-        {
-            private readonly ReadOnlyCollection<ITypeShapeProvider> providers;
-
-            internal CompositeTypeShapeProvider(ReadOnlyCollection<ITypeShapeProvider> providers)
-            {
-                this.providers = providers;
-            }
-
-            public ITypeShape? GetShape(Type type)
-            {
-                foreach (ITypeShapeProvider provider in this.providers)
-                {
-                    ITypeShape? shape = provider.GetShape(type);
-                    if (shape is not null)
-                    {
-                        return shape;
-                    }
-                }
-
-                return null;
-            }
+            serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
         }
     }
 }
