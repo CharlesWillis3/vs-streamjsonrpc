@@ -10,7 +10,18 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
 
     protected override void InitializeFormattersAndHandlers()
     {
-        this.serverMessageFormatter = new NerdbankMessagePackFormatter();
-        this.clientMessageFormatter = new NerdbankMessagePackFormatter();
+        NerdbankMessagePackFormatter serverFormatter = new();
+        serverFormatter.SetFormatterContext(ConfigureContext);
+
+        NerdbankMessagePackFormatter clientFormatter = new();
+        clientFormatter.SetFormatterContext(ConfigureContext);
+
+        this.serverMessageFormatter = serverFormatter;
+        this.clientMessageFormatter = clientFormatter;
+
+        static void ConfigureContext(NerdbankMessagePackFormatter.FormatterContextBuilder contextBuilder)
+        {
+            contextBuilder.RegisterAsyncEnumerableType<IAsyncEnumerable<int>, int>();
+        }
     }
 }

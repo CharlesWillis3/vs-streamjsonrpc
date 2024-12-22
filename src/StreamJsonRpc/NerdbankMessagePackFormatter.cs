@@ -29,7 +29,8 @@ namespace StreamJsonRpc;
 /// <remarks>
 /// The MessagePack implementation used here comes from https://github.com/AArnott/Nerdbank.MessagePack.
 /// </remarks>
-public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessageFormatter, IJsonRpcFormatterTracingCallbacks, IJsonRpcMessageFactory
+[System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0016:Add public types and members to the declared API", Justification = "TODO: Suppressed for Development")]
+public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessageFormatter, IJsonRpcFormatterTracingCallbacks, IJsonRpcMessageFactory
 {
     /// <summary>
     /// The constant "jsonrpc", in its various forms.
@@ -177,8 +178,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     /// <inheritdoc/>
     public JsonRpcMessage Deserialize(ReadOnlySequence<byte> contentBuffer)
     {
-        JsonRpcMessage message = this.rpcContext.Serializer.Deserialize<JsonRpcMessage>(contentBuffer, ShapeProvider_StreamJsonRpc.Default)
-            ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+        JsonRpcMessage message = this.rpcContext.Deserialize<JsonRpcMessage>(contentBuffer);
 
         IJsonRpcTracingCallbacks? tracingCallbacks = this.JsonRpc;
         this.deserializationToStringHelper.Activate(contentBuffer);
@@ -214,7 +214,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         var writer = new MessagePackWriter(contentBuffer);
         try
         {
-            this.rpcContext.Serializer.Serialize(ref writer, message, this.rpcContext.ShapeProvider);
+            this.rpcContext.Serialize(ref writer, message);
             writer.Flush();
         }
         catch (Exception ex)
@@ -641,7 +641,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             }
 
             [return: MaybeNull]
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
             public override TClass? Read(ref MessagePackReader reader, SerializationContext context)
             {
                 if (reader.TryReadNil())
@@ -754,7 +753,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 return mainFormatter.EnumerableTracker.CreateEnumerableProxy(token.HasValue ? token : null, initialElements);
             }
 
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to helper method")]
             public override void Write(ref MessagePackWriter writer, in IAsyncEnumerable<T>? value, SerializationContext context)
             {
                 Serialize_Shared(mainFormatter, ref writer, value, context);
@@ -808,7 +807,8 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         /// Converts an instance of <see cref="IAsyncEnumerable{T}"/> to an enumeration token.
         /// </summary>
 #pragma warning disable CA1812
-        private class GeneratorConverter<TClass, TElement>(NerdbankMessagePackFormatter mainFormatter) : MessagePackConverter<TClass> where TClass : IAsyncEnumerable<TElement>
+        private class GeneratorConverter<TClass, TElement>(NerdbankMessagePackFormatter mainFormatter) : MessagePackConverter<TClass>
+            where TClass : IAsyncEnumerable<TElement>
 #pragma warning restore CA1812
         {
             public override TClass Read(ref MessagePackReader reader, SerializationContext context)
@@ -816,7 +816,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 throw new NotSupportedException();
             }
 
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to helper method")]
             public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
             {
                 PreciseTypeConverter<TElement>.Serialize_Shared(mainFormatter, ref writer, value, context);
@@ -1012,14 +1012,14 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         where T : class
 #pragma warning restore CA1812
     {
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Reader is passed to rpc context")]
         public override T? Read(ref MessagePackReader reader, SerializationContext context)
         {
             MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcContext.Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(ref reader);
             return token.HasValue ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
         }
 
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to rpc context")]
         public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
         {
             if (value is null)
@@ -1175,7 +1175,8 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
+    [GenerateShape<JsonRpcMessage>]
+    private partial class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
     {
         private readonly NerdbankMessagePackFormatter formatter;
 
@@ -1251,7 +1252,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
         }
     }
 
-    private class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
+    private partial class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
     {
         private readonly NerdbankMessagePackFormatter formatter;
 
@@ -1276,7 +1277,10 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 // We read the property name in this fancy way in order to avoid paying to decode and allocate a string when we already know what we're looking for.
                 if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> stringKey))
                 {
-                    throw new UnrecognizedJsonRpcMessageException();
+                    ReadOnlySequence<byte>? keySequence = reader.ReadStringSequence() ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+                    stringKey = keySequence.Value.IsSingleSegment
+                        ? keySequence.Value.First.Span
+                        : keySequence.Value.ToArray();
                 }
 
                 if (VersionPropertyName.TryRead(stringKey))
@@ -1399,7 +1403,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             if (value.ArgumentsList is not null)
             {
                 writer.WriteArrayHeader(value.ArgumentsList.Count);
-
 
                 for (int i = 0; i < value.ArgumentsList.Count; i++)
                 {
@@ -1553,16 +1556,19 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 OriginalMessagePack = reader.Sequence,
             };
 
-            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
             context.DepthStep();
 
+            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
             int propertyCount = reader.ReadMapHeader();
             for (int propertyIndex = 0; propertyIndex < propertyCount; propertyIndex++)
             {
                 // We read the property name in this fancy way in order to avoid paying to decode and allocate a string when we already know what we're looking for.
                 if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> stringKey))
                 {
-                    throw new UnrecognizedJsonRpcMessageException();
+                    ReadOnlySequence<byte>? keySequence = reader.ReadStringSequence() ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+                    stringKey = keySequence.Value.IsSingleSegment
+                        ? keySequence.Value.First.Span
+                        : keySequence.Value.ToArray();
                 }
 
                 if (VersionPropertyName.TryRead(stringKey))
@@ -1661,7 +1667,10 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
                 // We read the property name in this fancy way in order to avoid paying to decode and allocate a string when we already know what we're looking for.
                 if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> stringKey))
                 {
-                    throw new UnrecognizedJsonRpcMessageException();
+                    ReadOnlySequence<byte>? keySequence = reader.ReadStringSequence() ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+                    stringKey = keySequence.Value.IsSingleSegment
+                        ? keySequence.Value.First.Span
+                        : keySequence.Value.ToArray();
                 }
 
                 if (VersionPropertyName.TryRead(stringKey))
@@ -1740,7 +1749,10 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             {
                 if (!reader.TryReadStringSpan(out ReadOnlySpan<byte> stringKey))
                 {
-                    throw new UnrecognizedJsonRpcMessageException();
+                    ReadOnlySequence<byte>? keySequence = reader.ReadStringSequence() ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
+                    stringKey = keySequence.Value.IsSingleSegment
+                        ? keySequence.Value.First.Span
+                        : keySequence.Value.ToArray();
                 }
 
                 if (CodePropertyName.TryRead(stringKey))
@@ -1764,26 +1776,24 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
             return result;
         }
 
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "<Pending>")]
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to user data context")]
         public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError.ErrorDetail? value, SerializationContext context)
         {
             Requires.NotNull(value!, nameof(value));
 
+            context.DepthStep();
+
             writer.WriteMapHeader(3);
 
             CodePropertyName.Write(ref writer);
-            context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider).Write(ref writer, value.Code, context);
+            context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider)
+                .Write(ref writer, value.Code, context);
 
             MessagePropertyName.Write(ref writer);
             writer.Write(value.Message);
 
             DataPropertyName.Write(ref writer);
-#pragma warning disable NBMsgPack030 // Converters should not call top-level `MessagePackSerializer` methods
-            this.formatter.userDataContext.Serializer.SerializeObject(
-                ref writer,
-                value.Data,
-                this.formatter.userDataContext.ShapeProvider.Resolve<Protocol.JsonRpcError.ErrorDetail?>());
-#pragma warning restore NBMsgPack030 // Converters should not call top-level `MessagePackSerializer` methods
+            this.formatter.userDataContext.Serialize(ref writer, value.Data);
         }
 
         public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
@@ -1971,7 +1981,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     }
 
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
-    [DataContract]
     private class OutboundJsonRpcRequest : JsonRpcRequestBase
     {
         private readonly NerdbankMessagePackFormatter formatter;
@@ -1985,7 +1994,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     }
 
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
-    [DataContract]
     private class JsonRpcRequest : JsonRpcRequestBase, IJsonRpcMessagePackRetention
     {
         private readonly NerdbankMessagePackFormatter formatter;
@@ -2093,8 +2101,7 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     }
 
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
-    [DataContract]
-    private class JsonRpcResult : JsonRpcResultBase, IJsonRpcMessagePackRetention
+    private partial class JsonRpcResult : JsonRpcResultBase, IJsonRpcMessagePackRetention
     {
         private readonly NerdbankMessagePackFormatter formatter;
         private readonly FormatterContext serializerOptions;
@@ -2158,7 +2165,6 @@ public sealed partial class NerdbankMessagePackFormatter : FormatterBase, IJsonR
     }
 
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
-    [DataContract]
     private class JsonRpcError : JsonRpcErrorBase, IJsonRpcMessagePackRetention
     {
         private readonly FormatterContext serializerOptions;

@@ -6,6 +6,9 @@ using NBMP = Nerdbank.MessagePack;
 
 namespace StreamJsonRpc;
 
+/// <summary>
+/// Serializes JSON-RPC messages using MessagePack (a fast, compact binary format).
+/// </summary>
 public partial class NerdbankMessagePackFormatter
 {
     [DebuggerDisplay("{" + nameof(Value) + "}")]

@@ -13,9 +13,6 @@ namespace StreamJsonRpc;
 /// <summary>
 /// Serializes JSON-RPC messages using MessagePack (a fast, compact binary format).
 /// </summary>
-/// <remarks>
-/// The MessagePack implementation used here comes from https://github.com/AArnott/Nerdbank.MessagePack.
-/// </remarks>
 public sealed partial class NerdbankMessagePackFormatter
 {
     /// <summary>

@@ -137,7 +137,7 @@ public partial class JsonRpcError : JsonRpcMessage, IJsonRpcMessageWithId
         /// </summary>
         /// <param name="dataType">The type that will be used as the generic type argument to <see cref="GetData{T}"/>.</param>
         /// <remarks>
-        /// Overridding methods in types that retain buffers used to deserialize should deserialize within this method and clear those buffers
+        /// Overriding methods in types that retain buffers used to deserialize should deserialize within this method and clear those buffers
         /// to prevent further access to these buffers which may otherwise happen concurrently with a call to <see cref="IJsonRpcMessageBufferManager.DeserializationComplete"/>
         /// that would recycle the same buffer being deserialized from.
         /// </remarks>

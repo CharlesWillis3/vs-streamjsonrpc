@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using Nerdbank.MessagePack;
 using Nerdbank.Streams;
+using PolyType;
 using StreamJsonRpc.Protocol;
 using StreamJsonRpc.Reflection;
 
@@ -321,7 +322,7 @@ public abstract class FormatterBase : IJsonRpcFormatterState, IJsonRpcInstanceCo
     /// <summary>
     /// A base class for top-level property bags that should be declared in the derived formatter class.
     /// </summary>
-    protected abstract class TopLevelPropertyBagBase
+    protected internal abstract class TopLevelPropertyBagBase
     {
         private readonly bool isOutbound;
         private Dictionary<string, (Type, object?)>? outboundProperties;
@@ -437,6 +438,7 @@ public abstract class FormatterBase : IJsonRpcFormatterState, IJsonRpcInstanceCo
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         [IgnoreDataMember]
+        [PropertyShape(Ignore = true)]
         public TopLevelPropertyBagBase? TopLevelPropertyBag { get; set; }
 
         void IJsonRpcMessageBufferManager.DeserializationComplete(JsonRpcMessage message)
@@ -481,6 +483,7 @@ public abstract class FormatterBase : IJsonRpcFormatterState, IJsonRpcInstanceCo
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         [IgnoreDataMember]
+        [PropertyShape(Ignore = true)]
         public TopLevelPropertyBagBase? TopLevelPropertyBag { get; set; }
 
         void IJsonRpcMessageBufferManager.DeserializationComplete(JsonRpcMessage message)

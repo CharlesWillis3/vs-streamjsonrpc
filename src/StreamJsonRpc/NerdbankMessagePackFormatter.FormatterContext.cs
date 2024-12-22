@@ -10,9 +10,6 @@ namespace StreamJsonRpc;
 /// <summary>
 /// Serializes JSON-RPC messages using MessagePack (a fast, compact binary format).
 /// </summary>
-/// <remarks>
-/// The MessagePack implementation used here comes from https://github.com/AArnott/Nerdbank.MessagePack.
-/// </remarks>
 public sealed partial class NerdbankMessagePackFormatter
 {
     internal class FormatterContext(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
@@ -30,7 +27,7 @@ public sealed partial class NerdbankMessagePackFormatter
         {
             // TODO: Improve the exception
             return serializer.Deserialize<T>(pack, shapeProvider, cancellationToken)
-                ?? throw new InvalidOperationException("Deserialization failed.");
+                ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
         }
 
         public object? DeserializeObject(in RawMessagePack pack, Type objectType, CancellationToken cancellationToken = default)
@@ -47,7 +44,7 @@ public sealed partial class NerdbankMessagePackFormatter
             serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
         }
 
-        internal void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
+        public void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
         {
             serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
         }
