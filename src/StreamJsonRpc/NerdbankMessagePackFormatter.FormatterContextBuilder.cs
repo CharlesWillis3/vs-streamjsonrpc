@@ -16,24 +16,24 @@ namespace StreamJsonRpc;
 public sealed partial class NerdbankMessagePackFormatter
 {
     /// <summary>
-    /// Provides methods to build a serialization context for the <see cref="NerdbankMessagePackFormatter"/>.
+    /// Provides methods to build a serialization profile for the <see cref="NerdbankMessagePackFormatter"/>.
     /// </summary>
-    public class FormatterContextBuilder
+    public class FormatterProfileBuilder
     {
         private readonly NerdbankMessagePackFormatter formatter;
-        private readonly FormatterContext baseContext;
+        private readonly FormatterProfile baseProfile;
 
         private ImmutableArray<ITypeShapeProvider>.Builder? typeShapeProvidersBuilder = null;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="FormatterContextBuilder"/> class.
+        /// Initializes a new instance of the <see cref="FormatterProfileBuilder"/> class.
         /// </summary>
         /// <param name="formatter">The formatter to use.</param>
-        /// <param name="baseContext">The base context to build upon.</param>
-        internal FormatterContextBuilder(NerdbankMessagePackFormatter formatter, FormatterContext baseContext)
+        /// <param name="baseProfile">The base profile to build upon.</param>
+        internal FormatterProfileBuilder(NerdbankMessagePackFormatter formatter, FormatterProfile baseProfile)
         {
             this.formatter = formatter;
-            this.baseContext = baseContext;
+            this.baseProfile = baseProfile;
         }
 
         /// <summary>
@@ -55,7 +55,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TEnumerable : IAsyncEnumerable<TElement>
         {
             MessagePackConverter<TEnumerable> converter = this.formatter.asyncEnumerableConverterResolver.GetConverter<TEnumerable>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -65,7 +65,7 @@ public sealed partial class NerdbankMessagePackFormatter
         /// <param name="converter">The converter to register.</param>
         public void RegisterConverter<T>(MessagePackConverter<T> converter)
         {
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -75,7 +75,7 @@ public sealed partial class NerdbankMessagePackFormatter
         /// <param name="mapping">The mapping of known subtypes.</param>
         public void RegisterKnownSubTypes<TBase>(KnownSubTypeMapping<TBase> mapping)
         {
-            this.baseContext.Serializer.RegisterKnownSubTypes(mapping);
+            this.baseProfile.Serializer.RegisterKnownSubTypes(mapping);
         }
 
         /// <summary>
@@ -87,7 +87,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TProgress : IProgress<TReport>
         {
             MessagePackConverter<TProgress> converter = this.formatter.progressConverterResolver.GetConverter<TProgress>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -98,7 +98,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TPipe : IDuplexPipe
         {
             MessagePackConverter<TPipe> converter = this.formatter.pipeConverterResolver.GetConverter<TPipe>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -109,7 +109,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TReader : PipeReader
         {
             MessagePackConverter<TReader> converter = this.formatter.pipeConverterResolver.GetConverter<TReader>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -120,7 +120,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TWriter : PipeWriter
         {
             MessagePackConverter<TWriter> converter = this.formatter.pipeConverterResolver.GetConverter<TWriter>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -131,7 +131,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TStream : Stream
         {
             MessagePackConverter<TStream> converter = this.formatter.pipeConverterResolver.GetConverter<TStream>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -142,7 +142,7 @@ public sealed partial class NerdbankMessagePackFormatter
             where TException : Exception
         {
             MessagePackConverter<TException> converter = this.formatter.exceptionResolver.GetConverter<TException>();
-            this.baseContext.Serializer.RegisterConverter(converter);
+            this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
         /// <summary>
@@ -165,28 +165,28 @@ public sealed partial class NerdbankMessagePackFormatter
                     targetOptions,
                     attribute)!;
 
-                this.baseContext.Serializer.RegisterConverter(converter);
+                this.baseProfile.Serializer.RegisterConverter(converter);
             }
 
             // TODO: Throw?
         }
 
         /// <summary>
-        /// Builds the formatter context.
+        /// Builds the formatter profile.
         /// </summary>
-        /// <returns>The built formatter context.</returns>
-        internal FormatterContext Build()
+        /// <returns>The built formatter profile.</returns>
+        internal FormatterProfile Build()
         {
             if (this.typeShapeProvidersBuilder is null || this.typeShapeProvidersBuilder.Count < 1)
             {
-                return this.baseContext;
+                return this.baseProfile;
             }
 
             ITypeShapeProvider provider = this.typeShapeProvidersBuilder.Count == 1
                 ? this.typeShapeProvidersBuilder[0]
                 : new CompositeTypeShapeProvider(this.typeShapeProvidersBuilder.ToImmutable());
 
-            return new FormatterContext(this.baseContext.Serializer, provider);
+            return new FormatterProfile(this.baseProfile.Serializer, provider);
         }
     }
 

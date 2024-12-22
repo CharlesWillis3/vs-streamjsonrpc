@@ -71,7 +71,8 @@ public partial class JsonRpcError : JsonRpcMessage, IJsonRpcMessageWithId
     /// Describes the error.
     /// </summary>
     [DataContract]
-    public class ErrorDetail
+    [GenerateShape]
+    public partial class ErrorDetail
     {
         /// <summary>
         /// Gets or sets a number that indicates the error type that occurred.

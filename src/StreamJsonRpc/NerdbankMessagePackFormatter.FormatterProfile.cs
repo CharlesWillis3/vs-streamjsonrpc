@@ -12,11 +12,11 @@ namespace StreamJsonRpc;
 /// </summary>
 public sealed partial class NerdbankMessagePackFormatter
 {
-    internal class FormatterContext(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
+    internal class FormatterProfile(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
     {
-        public MessagePackSerializer Serializer => serializer;
+        internal MessagePackSerializer Serializer => serializer;
 
-        public ITypeShapeProvider ShapeProvider => shapeProvider;
+        internal ITypeShapeProvider ShapeProvider => shapeProvider;
 
         public T? Deserialize<T>(ref MessagePackReader reader, CancellationToken cancellationToken = default)
         {
@@ -46,7 +46,24 @@ public sealed partial class NerdbankMessagePackFormatter
 
         public void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
         {
+            if (value is null)
+            {
+                writer.WriteNil();
+                return;
+            }
+
             serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
+        }
+
+        public void SerializeObject(ref MessagePackWriter writer, object? value, CancellationToken cancellationToken = default)
+        {
+            if (value is null)
+            {
+                writer.WriteNil();
+                return;
+            }
+
+            serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(value.GetType()), cancellationToken);
         }
     }
 }

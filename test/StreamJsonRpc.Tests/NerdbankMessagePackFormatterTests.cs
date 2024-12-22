@@ -131,7 +131,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_RequestArgInArray()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
@@ -154,7 +154,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_RequestArgInNamedArgs_AnonymousType()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
@@ -177,7 +177,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_RequestArgInNamedArgs_DataContractObject()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
@@ -202,7 +202,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_RequestArgInNamedArgs_NonDataContractObject()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
@@ -243,7 +243,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_Result()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
@@ -264,7 +264,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_ErrorData()
     {
-        this.Formatter.SetFormatterContext(b =>
+        this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);

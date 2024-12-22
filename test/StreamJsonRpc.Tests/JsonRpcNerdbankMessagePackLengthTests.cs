@@ -395,15 +395,15 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
         serverMessageFormatter = new NerdbankMessagePackFormatter();
         clientMessageFormatter = new NerdbankMessagePackFormatter();
 
-        ((NerdbankMessagePackFormatter)serverMessageFormatter).SetFormatterContext(Configure);
-        ((NerdbankMessagePackFormatter)clientMessageFormatter).SetFormatterContext(Configure);
+        ((NerdbankMessagePackFormatter)serverMessageFormatter).SetFormatterProfile(Configure);
+        ((NerdbankMessagePackFormatter)clientMessageFormatter).SetFormatterProfile(Configure);
 
         serverMessageHandler = new LengthHeaderMessageHandler(serverStream, serverStream, serverMessageFormatter);
         clientMessageHandler = controlledFlushingClient
             ? new DelayedFlushingHandler(clientStream, clientMessageFormatter)
             : new LengthHeaderMessageHandler(clientStream, clientStream, clientMessageFormatter);
 
-        static void Configure(NerdbankMessagePackFormatter.FormatterContextBuilder b)
+        static void Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
         {
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
