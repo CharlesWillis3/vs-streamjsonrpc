@@ -3,7 +3,6 @@
 
 using Nerdbank.MessagePack;
 using PolyType;
-using PolyType.Abstractions;
 
 namespace StreamJsonRpc;
 
@@ -12,58 +11,21 @@ namespace StreamJsonRpc;
 /// </summary>
 public sealed partial class NerdbankMessagePackFormatter
 {
-    internal class FormatterProfile(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FormatterProfile"/> class.
+    /// </summary>
+    /// <param name="serializer">The MessagePack serializer to use.</param>
+    /// <param name="shapeProvider">The type shape provider to use.</param>
+    public class FormatterProfile(MessagePackSerializer serializer, ITypeShapeProvider shapeProvider)
     {
+        /// <summary>
+        /// Gets the MessagePack serializer.
+        /// </summary>
         internal MessagePackSerializer Serializer => serializer;
 
+        /// <summary>
+        /// Gets the type shape provider.
+        /// </summary>
         internal ITypeShapeProvider ShapeProvider => shapeProvider;
-
-        public T? Deserialize<T>(ref MessagePackReader reader, CancellationToken cancellationToken = default)
-        {
-            return serializer.Deserialize<T>(ref reader, shapeProvider, cancellationToken);
-        }
-
-        public T Deserialize<T>(in RawMessagePack pack, CancellationToken cancellationToken = default)
-        {
-            // TODO: Improve the exception
-            return serializer.Deserialize<T>(pack, shapeProvider, cancellationToken)
-                ?? throw new MessagePackSerializationException(Resources.UnexpectedErrorProcessingJsonRpc);
-        }
-
-        public object? DeserializeObject(in RawMessagePack pack, Type objectType, CancellationToken cancellationToken = default)
-        {
-            MessagePackReader reader = new(pack);
-            return serializer.DeserializeObject(
-                ref reader,
-                shapeProvider.Resolve(objectType),
-                cancellationToken);
-        }
-
-        public void Serialize<T>(ref MessagePackWriter writer, T? value, CancellationToken cancellationToken = default)
-        {
-            serializer.Serialize(ref writer, value, shapeProvider, cancellationToken);
-        }
-
-        public void SerializeObject(ref MessagePackWriter writer, object? value, Type objectType, CancellationToken cancellationToken = default)
-        {
-            if (value is null)
-            {
-                writer.WriteNil();
-                return;
-            }
-
-            serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(objectType), cancellationToken);
-        }
-
-        public void SerializeObject(ref MessagePackWriter writer, object? value, CancellationToken cancellationToken = default)
-        {
-            if (value is null)
-            {
-                writer.WriteNil();
-                return;
-            }
-
-            serializer.SerializeObject(ref writer, value, shapeProvider.Resolve(value.GetType()), cancellationToken);
-        }
     }
 }

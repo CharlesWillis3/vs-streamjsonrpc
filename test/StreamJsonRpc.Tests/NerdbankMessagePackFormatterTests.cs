@@ -135,6 +135,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalArg = new TypeRequiringCustomFormatter { Prop1 = 3, Prop2 = 5 };
@@ -158,6 +159,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalArg = new { Prop1 = 3, Prop2 = 5 };
@@ -181,6 +183,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalArg = new DataContractWithSubsetOfMembersIncluded { ExcludedField = "A", ExcludedProperty = "B", IncludedField = "C", IncludedProperty = "D" };
@@ -206,6 +209,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalArg = new NonDataContractWithExcludedMembers { ExcludedField = "A", ExcludedProperty = "B", InternalField = "C", InternalProperty = "D", PublicField = "E", PublicProperty = "F" };
@@ -247,6 +251,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalResultValue = new TypeRequiringCustomFormatter { Prop1 = 3, Prop2 = 5 };
@@ -268,6 +273,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         {
             b.RegisterConverter(new CustomConverter());
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            return b.Build();
         });
 
         var originalErrorData = new TypeRequiringCustomFormatter { Prop1 = 3, Prop2 = 5 };

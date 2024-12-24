@@ -403,12 +403,15 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
             ? new DelayedFlushingHandler(clientStream, clientMessageFormatter)
             : new LengthHeaderMessageHandler(clientStream, clientStream, clientMessageFormatter);
 
-        static void Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
+        static NerdbankMessagePackFormatter.FormatterProfile Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
         {
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
             b.RegisterConverter(new CustomExtensionConverter());
+            b.RegisterStreamType<Nerdbank.FullDuplexStream>();
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
+            return b.Build();
         }
     }
 

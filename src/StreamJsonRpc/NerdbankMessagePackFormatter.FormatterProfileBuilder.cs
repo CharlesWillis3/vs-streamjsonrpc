@@ -166,16 +166,18 @@ public sealed partial class NerdbankMessagePackFormatter
                     attribute)!;
 
                 this.baseProfile.Serializer.RegisterConverter(converter);
+                return;
             }
 
             // TODO: Throw?
+            throw new NotSupportedException();
         }
 
         /// <summary>
         /// Builds the formatter profile.
         /// </summary>
         /// <returns>The built formatter profile.</returns>
-        internal FormatterProfile Build()
+        public FormatterProfile Build()
         {
             if (this.typeShapeProvidersBuilder is null || this.typeShapeProvidersBuilder.Count < 1)
             {
