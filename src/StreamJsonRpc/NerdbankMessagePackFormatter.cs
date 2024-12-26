@@ -466,7 +466,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
             if (MessageFormatterProgressTracker.CanDeserialize(typeof(T)))
             {
-                converter = new PreciseTypeConverter<T>(this.mainFormatter);
+                converter = new FullProgressConverter<T>(this.mainFormatter);
             }
             else if (MessageFormatterProgressTracker.CanSerialize(typeof(T)))
             {
@@ -518,11 +518,11 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         /// <summary>
         /// Converts a progress token to an <see cref="IProgress{T}"/> or an <see cref="IProgress{T}"/> into a token.
         /// </summary>
-        private class PreciseTypeConverter<TClass> : MessagePackConverter<TClass>
+        private class FullProgressConverter<TClass> : MessagePackConverter<TClass>
         {
             private readonly NerdbankMessagePackFormatter formatter;
 
-            internal PreciseTypeConverter(NerdbankMessagePackFormatter formatter)
+            internal FullProgressConverter(NerdbankMessagePackFormatter formatter)
             {
                 this.formatter = formatter;
             }
@@ -560,7 +560,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
             public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
             {
-                return CreateUndocumentedSchema(typeof(PreciseTypeConverter<TClass>));
+                return CreateUndocumentedSchema(typeof(FullProgressConverter<TClass>));
             }
         }
     }
@@ -1107,16 +1107,15 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
             for (int i = 0; i < propertyCount; i++)
             {
-                ReadOnlySequence<byte> stringKey = readAhead.ReadStringSequence() ?? ReadOnlySequence<byte>.Empty;
-                if (MethodPropertyName.IsMatch(stringKey))
+                if (MethodPropertyName.TryRead(ref readAhead))
                 {
                     return context.GetConverter<Protocol.JsonRpcRequest>(context.TypeShapeProvider).Read(ref reader, context);
                 }
-                else if (ResultPropertyName.IsMatch(stringKey))
+                else if (ResultPropertyName.TryRead(ref readAhead))
                 {
                     return context.GetConverter<Protocol.JsonRpcResult>(context.TypeShapeProvider).Read(ref reader, context);
                 }
-                else if (ErrorPropertyName.IsMatch(stringKey))
+                else if (ErrorPropertyName.TryRead(ref readAhead))
                 {
                     return context.GetConverter<Protocol.JsonRpcError>(context.TypeShapeProvider).Read(ref reader, context);
                 }
@@ -1124,6 +1123,9 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                 {
                     readAhead.Skip(context);
                 }
+
+                // Skip the value of the property.
+                readAhead.Skip(context);
             }
 
             throw new UnrecognizedJsonRpcMessageException();
