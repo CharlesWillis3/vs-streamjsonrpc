@@ -24,7 +24,6 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
         static NerdbankMessagePackFormatter.FormatterProfile ConfigureContext(NerdbankMessagePackFormatter.FormatterProfileBuilder profileBuilder)
         {
             profileBuilder.RegisterAsyncEnumerableType<IAsyncEnumerable<int>, int>();
-            profileBuilder.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
             profileBuilder.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
             return profileBuilder.Build();
         }

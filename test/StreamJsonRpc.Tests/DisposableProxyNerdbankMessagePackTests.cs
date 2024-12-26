@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.IO.Pipelines;
 using Nerdbank.MessagePack;
 
 public class DisposableProxyNerdbankMessagePackTests : DisposableProxyTests
@@ -12,5 +13,18 @@ public class DisposableProxyNerdbankMessagePackTests : DisposableProxyTests
 
     protected override Type FormatterExceptionType => typeof(MessagePackSerializationException);
 
-    protected override IJsonRpcMessageFormatter CreateFormatter() => new NerdbankMessagePackFormatter();
+    protected override IJsonRpcMessageFormatter CreateFormatter()
+    {
+        NerdbankMessagePackFormatter formatter = new();
+        formatter.SetFormatterProfile(b =>
+        {
+            b.RegisterStreamType<Nerdbank.FullDuplexStream>();
+            b.RegisterDuplexPipeType<IDuplexPipe>();
+            b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
+            return b.Build();
+        });
+
+        return formatter;
+    }
 }

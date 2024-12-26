@@ -131,13 +131,6 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_RequestArgInArray()
     {
-        this.Formatter.SetFormatterProfile(b =>
-        {
-            b.RegisterConverter(new CustomConverter());
-            b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
-            return b.Build();
-        });
-
         var originalArg = new TypeRequiringCustomFormatter { Prop1 = 3, Prop2 = 5 };
         var originalRequest = new JsonRpcRequest
         {
@@ -272,7 +265,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         this.Formatter.SetFormatterProfile(b =>
         {
             b.RegisterConverter(new CustomConverter());
-            b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.AddTypeShapeProvider(ReflectionTypeShapeProvider.Default);
             return b.Build();
         });
 
@@ -373,16 +366,25 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         Assert.Same(request1.Method, request2.Method); // reference equality to ensure it was interned.
     }
 
-    protected override NerdbankMessagePackFormatter CreateFormatter() => new();
+    protected override NerdbankMessagePackFormatter CreateFormatter()
+    {
+        NerdbankMessagePackFormatter formatter = new();
+        return formatter;
+    }
 
     private T Read<T>(object anonymousObject)
         where T : JsonRpcMessage
     {
+        NerdbankMessagePackFormatter.FormatterProfileBuilder profileBuilder = this.Formatter.ProfileBuilder;
+        profileBuilder.AddTypeShapeProvider(ReflectionTypeShapeProvider.Default);
+        profileBuilder.RegisterConverter(new CustomConverter());
+        NerdbankMessagePackFormatter.FormatterProfile profile = profileBuilder.Build();
+
         var sequence = new Sequence<byte>();
         var writer = new MessagePackWriter(sequence);
-        new MessagePackSerializer().Serialize(ref writer, anonymousObject, ReflectionTypeShapeProvider.Default);
+        profile.SerializeObject(ref writer, anonymousObject);
         writer.Flush();
-        return (T)this.Formatter.Deserialize(sequence);
+        return profile.Deserialize<T>(sequence);
     }
 
     [DataContract]

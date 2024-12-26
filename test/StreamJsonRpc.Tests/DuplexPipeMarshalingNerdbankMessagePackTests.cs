@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.IO.Pipelines;
 using Nerdbank.Streams;
 
 public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshalingTests
@@ -19,8 +20,9 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
 
         serverFormatter.SetFormatterProfile(b =>
         {
+            b.RegisterPipeReaderType<PipeReader>();
+            b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
-            b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
             return b.Build();
         });
@@ -32,8 +34,9 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
 
         clientFormatter.SetFormatterProfile(b =>
         {
+            b.RegisterPipeReaderType<PipeReader>();
+            b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
-            b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
             return b.Build();
         });
