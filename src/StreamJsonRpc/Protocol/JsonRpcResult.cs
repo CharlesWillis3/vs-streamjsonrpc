@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime.Serialization;
+using Nerdbank.MessagePack;
 using PolyType;
 using JsonNET = Newtonsoft.Json.Linq;
 using STJ = System.Text.Json.Serialization;
@@ -13,8 +14,9 @@ namespace StreamJsonRpc.Protocol;
 /// Describes the result of a successful method invocation.
 /// </summary>
 [DataContract]
-[DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
 [GenerateShape]
+[MessagePackConverter(typeof(NerdbankMessagePackFormatter.JsonRpcResultConverter))]
+[DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
 public partial class JsonRpcResult : JsonRpcMessage, IJsonRpcMessageWithId
 {
     /// <summary>

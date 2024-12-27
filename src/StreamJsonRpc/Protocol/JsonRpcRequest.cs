@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Serialization;
+using Nerdbank.MessagePack;
 using PolyType;
 using JsonNET = Newtonsoft.Json.Linq;
 using STJ = System.Text.Json.Serialization;
@@ -15,6 +16,7 @@ namespace StreamJsonRpc.Protocol;
 /// </summary>
 [DataContract]
 [GenerateShape]
+[MessagePackConverter(typeof(NerdbankMessagePackFormatter.JsonRpcRequestConverter))]
 [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
 public partial class JsonRpcRequest : JsonRpcMessage, IJsonRpcMessageWithId
 {

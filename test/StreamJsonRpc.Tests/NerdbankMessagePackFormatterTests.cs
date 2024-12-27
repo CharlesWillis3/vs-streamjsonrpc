@@ -262,13 +262,6 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     [Fact]
     public void Resolver_ErrorData()
     {
-        this.Formatter.SetFormatterProfile(b =>
-        {
-            b.RegisterConverter(new CustomConverter());
-            b.AddTypeShapeProvider(ReflectionTypeShapeProvider.Default);
-            return b.Build();
-        });
-
         var originalErrorData = new TypeRequiringCustomFormatter { Prop1 = 3, Prop2 = 5 };
         var originalError = new JsonRpcError
         {
@@ -369,6 +362,13 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
     protected override NerdbankMessagePackFormatter CreateFormatter()
     {
         NerdbankMessagePackFormatter formatter = new();
+        formatter.SetFormatterProfile(b =>
+        {
+            b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.AddTypeShapeProvider(ReflectionTypeShapeProvider.Default);
+            return b.Build();
+        });
+
         return formatter;
     }
 
@@ -376,15 +376,17 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         where T : JsonRpcMessage
     {
         NerdbankMessagePackFormatter.FormatterProfileBuilder profileBuilder = this.Formatter.ProfileBuilder;
+        profileBuilder.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
         profileBuilder.AddTypeShapeProvider(ReflectionTypeShapeProvider.Default);
-        profileBuilder.RegisterConverter(new CustomConverter());
         NerdbankMessagePackFormatter.FormatterProfile profile = profileBuilder.Build();
+
+        this.Formatter.SetFormatterProfile(profile);
 
         var sequence = new Sequence<byte>();
         var writer = new MessagePackWriter(sequence);
         profile.SerializeObject(ref writer, anonymousObject);
         writer.Flush();
-        return profile.Deserialize<T>(sequence);
+        return (T)this.Formatter.Deserialize(sequence.AsReadOnlySequence);
     }
 
     [DataContract]
@@ -424,6 +426,7 @@ public partial class NerdbankMessagePackFormatterTests : FormatterTestBase<Nerdb
         internal string? InternalProperty { get; set; }
     }
 
+    [MessagePackConverter(typeof(CustomConverter))]
     [GenerateShape]
     public partial class TypeRequiringCustomFormatter
     {

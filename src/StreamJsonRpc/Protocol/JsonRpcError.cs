@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime.Serialization;
+using Nerdbank.MessagePack;
 using PolyType;
 using StreamJsonRpc.Reflection;
 using JsonNET = Newtonsoft.Json.Linq;
@@ -15,6 +16,7 @@ namespace StreamJsonRpc.Protocol;
 /// </summary>
 [DataContract]
 [GenerateShape]
+[MessagePackConverter(typeof(NerdbankMessagePackFormatter.JsonRpcErrorConverter))]
 [DebuggerDisplay("{" + nameof(DebuggerDisplay) + "}")]
 public partial class JsonRpcError : JsonRpcMessage, IJsonRpcMessageWithId
 {
@@ -72,6 +74,7 @@ public partial class JsonRpcError : JsonRpcMessage, IJsonRpcMessageWithId
     /// </summary>
     [DataContract]
     [GenerateShape]
+    [MessagePackConverter(typeof(NerdbankMessagePackFormatter.JsonRpcErrorDetailConverter))]
     public partial class ErrorDetail
     {
         /// <summary>

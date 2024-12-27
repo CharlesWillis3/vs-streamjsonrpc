@@ -72,17 +72,19 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         {
             InternStrings = true,
             SerializeDefaultValues = true,
+            StartingContext = new SerializationContext()
+            {
+                [SerializationContextExtensions.FormatterKey] = this,
+            },
         };
 
         serializer.RegisterConverter(RequestIdConverter.Instance);
-        serializer.RegisterConverter(new JsonRpcMessageConverter(this));
-        serializer.RegisterConverter(new JsonRpcRequestConverter(this));
-        serializer.RegisterConverter(new JsonRpcResultConverter(this));
-        serializer.RegisterConverter(new JsonRpcErrorConverter(this));
-        serializer.RegisterConverter(new JsonRpcErrorDetailConverter(this));
         serializer.RegisterConverter(new TraceParentConverter());
 
-        this.rpcProfile = new FormatterProfile(serializer, ShapeProvider_StreamJsonRpc.Default);
+        this.rpcProfile = new FormatterProfile(
+            FormatterProfile.ProfileSource.Internal,
+            serializer,
+            [ShapeProvider_StreamJsonRpc.Default]);
 
         // Create the specialized formatters/resolvers that we will inject into the chain for user data.
         this.progressConverterResolver = new ProgressConverterResolver(this);
@@ -95,6 +97,10 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         {
             InternStrings = true,
             SerializeDefaultValues = true,
+            StartingContext = new SerializationContext()
+            {
+                [SerializationContextExtensions.FormatterKey] = this,
+            },
         };
 
         // Add our own resolvers to fill in specialized behavior if the user doesn't provide/override it by their own resolver.
@@ -102,10 +108,14 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         userSerializer.RegisterConverter(RequestIdConverter.Instance);
 
         // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
-        userSerializer.RegisterConverter(RawMessagePackFormatter.Instance);
+        // userSerializer.RegisterConverter(RawMessagePackFormatter.Instance);
         userSerializer.RegisterConverter(EventArgsConverter.Instance);
 
-        this.userDataProfile = new FormatterProfile(userSerializer, ReflectionTypeShapeProvider.Default);
+        this.userDataProfile = new FormatterProfile(
+            FormatterProfile.ProfileSource.External,
+            userSerializer,
+            [ReflectionTypeShapeProvider.Default]);
+
         this.ProfileBuilder = new FormatterProfileBuilder(this, this.userDataProfile);
     }
 
@@ -132,7 +142,6 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     public void SetFormatterProfile(FormatterProfile profile)
     {
         Requires.NotNull(profile, nameof(profile));
-
         this.userDataProfile = profile;
     }
 
@@ -145,15 +154,15 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         Requires.NotNull(configure, nameof(configure));
 
         var builder = new FormatterProfileBuilder(this, this.userDataProfile);
-        FormatterProfile profile = configure(builder);
 
-        this.userDataProfile = profile;
+        this.SetFormatterProfile(configure(builder));
     }
 
     /// <inheritdoc/>
     public JsonRpcMessage Deserialize(ReadOnlySequence<byte> contentBuffer)
     {
-        JsonRpcMessage message = this.rpcProfile.Deserialize<JsonRpcMessage>(contentBuffer);
+        JsonRpcMessage message = this.rpcProfile.Deserialize<JsonRpcMessage>(contentBuffer)
+            ?? throw new MessagePackSerializationException("Failed to deserialize JSON-RPC message.");
 
         IJsonRpcTracingCallbacks? tracingCallbacks = this.JsonRpc;
         this.deserializationToStringHelper.Activate(contentBuffer);
@@ -338,10 +347,11 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
     private static ReadOnlySequence<byte> GetSliceForNextToken(ref MessagePackReader reader, in SerializationContext context)
     {
-        SequencePosition startingPosition = reader.Position;
-        reader.Skip(context);
-        SequencePosition endingPosition = reader.Position;
-        return reader.Sequence.Slice(startingPosition, endingPosition);
+        return reader.ReadRaw(context);
+        ////SequencePosition startingPosition = reader.Position;
+        ////reader.Skip(context);
+        ////SequencePosition endingPosition = reader.Position;
+        ////return reader.Sequence.Slice(startingPosition, endingPosition);
     }
 
     /// <summary>
@@ -349,7 +359,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// </summary>
     /// <param name="reader">The reader to use.</param>
     /// <returns>The decoded string.</returns>
-    private static unsafe string ReadProtocolVersion(ref MessagePackReader reader)
+    private static string ReadProtocolVersion(ref MessagePackReader reader)
     {
         // Recognize "2.0" since we expect it and can avoid decoding and allocating a new string for it.
         if (Version2.TryRead(ref reader))
@@ -381,6 +391,739 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         string name = Encoding.UTF8.GetString(stringKey.ToArray());
 #endif
         topLevelProperties.Add(name, GetSliceForNextToken(ref reader, context));
+    }
+
+    /// <summary>
+    /// Converts JSON-RPC messages to and from MessagePack format.
+    /// </summary>
+    [GenerateShape<JsonRpcMessage>]
+    internal partial class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
+    {
+        /// <summary>
+        /// Reads a JSON-RPC message from the specified MessagePack reader.
+        /// </summary>
+        /// <param name="reader">The MessagePack reader to read from.</param>
+        /// <param name="context">The serialization context.</param>
+        /// <returns>The deserialized JSON-RPC message.</returns>
+        public override JsonRpcMessage? Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            context.DepthStep();
+
+            MessagePackReader readAhead = reader.CreatePeekReader();
+            int propertyCount = readAhead.ReadMapHeader();
+
+            for (int i = 0; i < propertyCount; i++)
+            {
+                if (MethodPropertyName.TryRead(ref readAhead))
+                {
+                    return context.GetConverter<Protocol.JsonRpcRequest>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (ResultPropertyName.TryRead(ref readAhead))
+                {
+                    return context.GetConverter<Protocol.JsonRpcResult>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (ErrorPropertyName.TryRead(ref readAhead))
+                {
+                    return context.GetConverter<Protocol.JsonRpcError>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else
+                {
+                    readAhead.Skip(context);
+                }
+
+                // Skip the value of the property.
+                readAhead.Skip(context);
+            }
+
+            throw new UnrecognizedJsonRpcMessageException();
+        }
+
+        /// <summary>
+        /// Writes a JSON-RPC message to the specified MessagePack writer.
+        /// </summary>
+        /// <param name="writer">The MessagePack writer to write to.</param>
+        /// <param name="value">The JSON-RPC message to write.</param>
+        /// <param name="context">The serialization context.</param>
+        public override void Write(ref MessagePackWriter writer, in JsonRpcMessage? value, SerializationContext context)
+        {
+            Requires.NotNull(value!, nameof(value));
+
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+            context.DepthStep();
+
+            using (formatter.TrackSerialization(value))
+            {
+                switch (value)
+                {
+                    case Protocol.JsonRpcRequest request:
+                        context.GetConverter<Protocol.JsonRpcRequest>(context.TypeShapeProvider).Write(ref writer, request, context);
+                        break;
+                    case Protocol.JsonRpcResult result:
+                        context.GetConverter<Protocol.JsonRpcResult>(context.TypeShapeProvider).Write(ref writer, result, context);
+                        break;
+                    case Protocol.JsonRpcError error:
+                        context.GetConverter<Protocol.JsonRpcError>(context.TypeShapeProvider).Write(ref writer, error, context);
+                        break;
+                    default:
+                        throw new NotSupportedException("Unexpected JsonRpcMessage-derived type: " + value.GetType().Name);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the JSON schema for the specified type.
+        /// </summary>
+        /// <param name="context">The JSON schema context.</param>
+        /// <param name="typeShape">The type shape.</param>
+        /// <returns>The JSON schema for the specified type.</returns>
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return base.GetJsonSchema(context, typeShape);
+        }
+    }
+
+    /// <summary>
+    /// Converts a JSON-RPC request message to and from MessagePack format.
+    /// </summary>
+    internal partial class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
+    {
+        /// <summary>
+        /// Reads a JSON-RPC request message from the specified MessagePack reader.
+        /// </summary>
+        /// <param name="reader">The MessagePack reader to read from.</param>
+        /// <param name="context">The serialization context.</param>
+        /// <returns>The deserialized JSON-RPC request message.</returns>
+        public override Protocol.JsonRpcRequest? Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+
+            context.DepthStep();
+
+            var result = new JsonRpcRequest(formatter)
+            {
+                OriginalMessagePack = reader.Sequence,
+            };
+
+            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
+
+            int propertyCount = reader.ReadMapHeader();
+            for (int propertyIndex = 0; propertyIndex < propertyCount; propertyIndex++)
+            {
+                if (VersionPropertyName.TryRead(ref reader))
+                {
+                    result.Version = ReadProtocolVersion(ref reader);
+                }
+                else if (IdPropertyName.TryRead(ref reader))
+                {
+                    result.RequestId = context.GetConverter<RequestId>(null).Read(ref reader, context);
+                }
+                else if (MethodPropertyName.TryRead(ref reader))
+                {
+                    result.Method = context.GetConverter<string>(null).Read(ref reader, context);
+                }
+                else if (ParamsPropertyName.TryRead(ref reader))
+                {
+                    SequencePosition paramsTokenStartPosition = reader.Position;
+
+                    // Parse out the arguments into a dictionary or array, but don't deserialize them because we don't yet know what types to deserialize them to.
+                    switch (reader.NextMessagePackType)
+                    {
+                        case MessagePackType.Array:
+                            var positionalArgs = new ReadOnlySequence<byte>[reader.ReadArrayHeader()];
+                            for (int i = 0; i < positionalArgs.Length; i++)
+                            {
+                                positionalArgs[i] = GetSliceForNextToken(ref reader, context);
+                            }
+
+                            result.MsgPackPositionalArguments = positionalArgs;
+                            break;
+                        case MessagePackType.Map:
+                            int namedArgsCount = reader.ReadMapHeader();
+                            var namedArgs = new Dictionary<string, ReadOnlySequence<byte>>(namedArgsCount);
+                            for (int i = 0; i < namedArgsCount; i++)
+                            {
+                                string? propertyName = context.GetConverter<string>(null).Read(ref reader, context) ?? throw new MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
+                                namedArgs.Add(propertyName, GetSliceForNextToken(ref reader, context));
+                            }
+
+                            result.MsgPackNamedArguments = namedArgs;
+                            break;
+                        case MessagePackType.Nil:
+                            result.MsgPackPositionalArguments = [];
+                            reader.ReadNil();
+                            break;
+                        case MessagePackType type:
+                            throw new MessagePackSerializationException("Expected a map or array of arguments but got " + type);
+                    }
+
+                    result.MsgPackArguments = reader.Sequence.Slice(paramsTokenStartPosition, reader.Position);
+                }
+                else if (TraceParentPropertyName.TryRead(ref reader))
+                {
+                    TraceParent traceParent = context.GetConverter<TraceParent>(null).Read(ref reader, context);
+                    result.TraceParent = traceParent.ToString();
+                }
+                else if (TraceStatePropertyName.TryRead(ref reader))
+                {
+                    result.TraceState = ReadTraceState(ref reader, context);
+                }
+                else
+                {
+                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
+                }
+            }
+
+            if (topLevelProperties is not null)
+            {
+                result.TopLevelPropertyBag = new TopLevelPropertyBag(formatter.userDataProfile, topLevelProperties);
+            }
+
+            formatter.TryHandleSpecialIncomingMessage(result);
+
+            return result;
+        }
+
+        /// <summary>
+        /// Writes a JSON-RPC request message to the specified MessagePack writer.
+        /// </summary>
+        /// <param name="writer">The MessagePack writer to write to.</param>
+        /// <param name="value">The JSON-RPC request message to write.</param>
+        /// <param name="context">The serialization context.</param>
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcRequest? value, SerializationContext context)
+        {
+            Requires.NotNull(value!, nameof(value));
+
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+
+            context.DepthStep();
+
+            var topLevelPropertyBag = (TopLevelPropertyBag?)(value as IMessageWithTopLevelPropertyBag)?.TopLevelPropertyBag;
+
+            int mapElementCount = value.RequestId.IsEmpty ? 3 : 4;
+            if (value.TraceParent?.Length > 0)
+            {
+                mapElementCount++;
+                if (value.TraceState?.Length > 0)
+                {
+                    mapElementCount++;
+                }
+            }
+
+            mapElementCount += topLevelPropertyBag?.PropertyCount ?? 0;
+            writer.WriteMapHeader(mapElementCount);
+
+            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
+
+            if (!value.RequestId.IsEmpty)
+            {
+                writer.Write(IdPropertyName);
+                context.GetConverter<RequestId>(context.TypeShapeProvider)
+                    .Write(ref writer, value.RequestId, context);
+            }
+
+            writer.Write(MethodPropertyName);
+            writer.Write(value.Method);
+
+            writer.Write(ParamsPropertyName);
+            if (value.ArgumentsList is not null)
+            {
+                writer.WriteArrayHeader(value.ArgumentsList.Count);
+
+                for (int i = 0; i < value.ArgumentsList.Count; i++)
+                {
+                    object? arg = value.ArgumentsList[i];
+
+                    if (value.ArgumentListDeclaredTypes is null)
+                    {
+                        formatter.userDataProfile.SerializeObject(
+                            ref writer,
+                            arg,
+                            context.CancellationToken);
+                    }
+                    else
+                    {
+                        formatter.userDataProfile.SerializeObject(
+                            ref writer,
+                            arg,
+                            value.ArgumentListDeclaredTypes[i],
+                            context.CancellationToken);
+                    }
+                }
+            }
+            else if (value.NamedArguments is not null)
+            {
+                writer.WriteMapHeader(value.NamedArguments.Count);
+                foreach (KeyValuePair<string, object?> entry in value.NamedArguments)
+                {
+                    writer.Write(entry.Key);
+
+                    if (value.NamedArgumentDeclaredTypes is null)
+                    {
+                        formatter.userDataProfile.SerializeObject(
+                            ref writer,
+                            entry.Value,
+                            context.CancellationToken);
+                    }
+                    else
+                    {
+                        Type argType = value.NamedArgumentDeclaredTypes[entry.Key];
+                        formatter.userDataProfile.SerializeObject(
+                            ref writer,
+                            entry.Value,
+                            argType,
+                            context.CancellationToken);
+                    }
+                }
+            }
+            else
+            {
+                writer.WriteNil();
+            }
+
+            if (value.TraceParent?.Length > 0)
+            {
+                writer.Write(TraceParentPropertyName);
+                context.GetConverter<TraceParent>(context.TypeShapeProvider)
+                    .Write(ref writer, new TraceParent(value.TraceParent), context);
+
+                if (value.TraceState?.Length > 0)
+                {
+                    writer.Write(TraceStatePropertyName);
+                    WriteTraceState(ref writer, value.TraceState);
+                }
+            }
+
+            topLevelPropertyBag?.WriteProperties(ref writer);
+        }
+
+        /// <summary>
+        /// Gets the JSON schema for the specified type.
+        /// </summary>
+        /// <param name="context">The JSON schema context.</param>
+        /// <param name="typeShape">The type shape.</param>
+        /// <returns>The JSON schema for the specified type.</returns>
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(JsonRpcRequestConverter));
+        }
+
+        private static void WriteTraceState(ref MessagePackWriter writer, string traceState)
+        {
+            ReadOnlySpan<char> traceStateChars = traceState.AsSpan();
+
+            // Count elements first so we can write the header.
+            int elementCount = 1;
+            int commaIndex;
+            while ((commaIndex = traceStateChars.IndexOf(',')) >= 0)
+            {
+                elementCount++;
+                traceStateChars = traceStateChars.Slice(commaIndex + 1);
+            }
+
+            // For every element, we have a key and value to record.
+            writer.WriteArrayHeader(elementCount * 2);
+
+            traceStateChars = traceState.AsSpan();
+            while ((commaIndex = traceStateChars.IndexOf(',')) >= 0)
+            {
+                ReadOnlySpan<char> element = traceStateChars.Slice(0, commaIndex);
+                WritePair(ref writer, element);
+                traceStateChars = traceStateChars.Slice(commaIndex + 1);
+            }
+
+            // Write out the last one.
+            WritePair(ref writer, traceStateChars);
+
+            static void WritePair(ref MessagePackWriter writer, ReadOnlySpan<char> pair)
+            {
+                int equalsIndex = pair.IndexOf('=');
+                ReadOnlySpan<char> key = pair.Slice(0, equalsIndex);
+                ReadOnlySpan<char> value = pair.Slice(equalsIndex + 1);
+                writer.Write(key);
+                writer.Write(value);
+            }
+        }
+
+        private static unsafe string ReadTraceState(ref MessagePackReader reader, SerializationContext context)
+        {
+            int elements = reader.ReadArrayHeader();
+            if (elements % 2 != 0)
+            {
+                throw new NotSupportedException("Odd number of elements not expected.");
+            }
+
+            // With care, we could probably assemble this string with just two allocations (the string + a char[]).
+            var resultBuilder = new StringBuilder();
+            for (int i = 0; i < elements; i += 2)
+            {
+                if (resultBuilder.Length > 0)
+                {
+                    resultBuilder.Append(',');
+                }
+
+                // We assume the key is a frequent string, and the value is unique,
+                // so we optimize whether to use string interning or not on that basis.
+                resultBuilder.Append(context.GetConverter<string>(null).Read(ref reader, context));
+                resultBuilder.Append('=');
+                resultBuilder.Append(reader.ReadString());
+            }
+
+            return resultBuilder.ToString();
+        }
+    }
+
+    /// <summary>
+    /// Converts a JSON-RPC result message to and from MessagePack format.
+    /// </summary>
+    internal partial class JsonRpcResultConverter : MessagePackConverter<Protocol.JsonRpcResult>
+    {
+        /// <summary>
+        /// Reads a JSON-RPC result message from the specified MessagePack reader.
+        /// </summary>
+        /// <param name="reader">The MessagePack reader to read from.</param>
+        /// <param name="context">The serialization context.</param>
+        /// <returns>The deserialized JSON-RPC result message.</returns>
+        public override Protocol.JsonRpcResult Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+            context.DepthStep();
+
+            var result = new JsonRpcResult(formatter, formatter.userDataProfile)
+            {
+                OriginalMessagePack = reader.Sequence,
+            };
+
+            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
+
+            int propertyCount = reader.ReadMapHeader();
+            for (int propertyIndex = 0; propertyIndex < propertyCount; propertyIndex++)
+            {
+                if (VersionPropertyName.TryRead(ref reader))
+                {
+                    result.Version = ReadProtocolVersion(ref reader);
+                }
+                else if (IdPropertyName.TryRead(ref reader))
+                {
+                    result.RequestId = context.GetConverter<RequestId>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (ResultPropertyName.TryRead(ref reader))
+                {
+                    result.MsgPackResult = GetSliceForNextToken(ref reader, context);
+                }
+                else
+                {
+                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
+                }
+            }
+
+            if (topLevelProperties is not null)
+            {
+                result.TopLevelPropertyBag = new TopLevelPropertyBag(formatter.userDataProfile, topLevelProperties);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Writes a JSON-RPC result message to the specified MessagePack writer.
+        /// </summary>
+        /// <param name="writer">The MessagePack writer to write to.</param>
+        /// <param name="value">The JSON-RPC result message to write.</param>
+        /// <param name="context">The serialization context.</param>
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcResult? value, SerializationContext context)
+        {
+            Requires.NotNull(value!, nameof(value));
+
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+
+            context.DepthStep();
+
+            var topLevelPropertyBagMessage = value as IMessageWithTopLevelPropertyBag;
+
+            int mapElementCount = 3;
+            mapElementCount += (topLevelPropertyBagMessage?.TopLevelPropertyBag as TopLevelPropertyBag)?.PropertyCount ?? 0;
+            writer.WriteMapHeader(mapElementCount);
+
+            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
+
+            writer.Write(IdPropertyName);
+            context.GetConverter<RequestId>(context.TypeShapeProvider).Write(ref writer, value.RequestId, context);
+
+            writer.Write(ResultPropertyName);
+
+            if (value.Result is null)
+            {
+                writer.WriteNil();
+            }
+
+            if (value.ResultDeclaredType is not null && value.ResultDeclaredType != typeof(void))
+            {
+                formatter.userDataProfile.SerializeObject(ref writer, value.Result, value.ResultDeclaredType, context.CancellationToken);
+            }
+            else
+            {
+                formatter.userDataProfile.SerializeObject(ref writer, value.Result, context.CancellationToken);
+            }
+
+            (topLevelPropertyBagMessage?.TopLevelPropertyBag as TopLevelPropertyBag)?.WriteProperties(ref writer);
+        }
+
+        /// <summary>
+        /// Gets the JSON schema for the specified type.
+        /// </summary>
+        /// <param name="context">The JSON schema context.</param>
+        /// <param name="typeShape">The type shape.</param>
+        /// <returns>The JSON schema for the specified type.</returns>
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(JsonRpcResultConverter));
+        }
+    }
+
+    /// <summary>
+    /// Converts a JSON-RPC error message to and from MessagePack format.
+    /// </summary>
+    internal partial class JsonRpcErrorConverter : MessagePackConverter<Protocol.JsonRpcError>
+    {
+        /// <summary>
+        /// Reads a JSON-RPC error message from the specified MessagePack reader.
+        /// </summary>
+        /// <param name="reader">The MessagePack reader to read from.</param>
+        /// <param name="context">The serialization context.</param>
+        /// <returns>The deserialized JSON-RPC error message.</returns>
+        public override Protocol.JsonRpcError Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+            var error = new JsonRpcError(formatter.userDataProfile)
+            {
+                OriginalMessagePack = reader.Sequence,
+            };
+
+            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
+
+            context.DepthStep();
+            int propertyCount = reader.ReadMapHeader();
+            for (int propertyIdx = 0; propertyIdx < propertyCount; propertyIdx++)
+            {
+                if (VersionPropertyName.TryRead(ref reader))
+                {
+                    error.Version = ReadProtocolVersion(ref reader);
+                }
+                else if (IdPropertyName.TryRead(ref reader))
+                {
+                    error.RequestId = context.GetConverter<RequestId>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (ErrorPropertyName.TryRead(ref reader))
+                {
+                    error.Error = context.GetConverter<Protocol.JsonRpcError.ErrorDetail>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else
+                {
+                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
+                }
+            }
+
+            if (topLevelProperties is not null)
+            {
+                error.TopLevelPropertyBag = new TopLevelPropertyBag(formatter.userDataProfile, topLevelProperties);
+            }
+
+            return error;
+        }
+
+        /// <summary>
+        /// Writes a JSON-RPC error message to the specified MessagePack writer.
+        /// </summary>
+        /// <param name="writer">The MessagePack writer to write to.</param>
+        /// <param name="value">The JSON-RPC error message to write.</param>
+        /// <param name="context">The serialization context.</param>
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError? value, SerializationContext context)
+        {
+            Requires.NotNull(value!, nameof(value));
+
+            var topLevelPropertyBag = (TopLevelPropertyBag?)(value as IMessageWithTopLevelPropertyBag)?.TopLevelPropertyBag;
+
+            context.DepthStep();
+            int mapElementCount = 3;
+            mapElementCount += topLevelPropertyBag?.PropertyCount ?? 0;
+            writer.WriteMapHeader(mapElementCount);
+
+            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
+
+            writer.Write(IdPropertyName);
+            context.GetConverter<RequestId>(context.TypeShapeProvider)
+                .Write(ref writer, value.RequestId, context);
+
+            writer.Write(ErrorPropertyName);
+            context.GetConverter<Protocol.JsonRpcError.ErrorDetail>(context.TypeShapeProvider)
+                .Write(ref writer, value.Error, context);
+
+            topLevelPropertyBag?.WriteProperties(ref writer);
+        }
+
+        /// <summary>
+        /// Gets the JSON schema for the specified type.
+        /// </summary>
+        /// <param name="context">The JSON schema context.</param>
+        /// <param name="typeShape">The type shape.</param>
+        /// <returns>The JSON schema for the specified type.</returns>
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(JsonRpcErrorConverter));
+        }
+    }
+
+    /// <summary>
+    /// Converts a JSON-RPC error detail to and from MessagePack format.
+    /// </summary>
+    internal partial class JsonRpcErrorDetailConverter : MessagePackConverter<Protocol.JsonRpcError.ErrorDetail>
+    {
+        private static readonly MessagePackString CodePropertyName = new("code");
+        private static readonly MessagePackString MessagePropertyName = new("message");
+        private static readonly MessagePackString DataPropertyName = new("data");
+
+        /// <summary>
+        /// Reads a JSON-RPC error detail from the specified MessagePack reader.
+        /// </summary>
+        /// <param name="reader">The MessagePack reader to read from.</param>
+        /// <param name="context">The serialization context.</param>
+        /// <returns>The deserialized JSON-RPC error detail.</returns>
+        public override Protocol.JsonRpcError.ErrorDetail Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+            context.DepthStep();
+
+            var result = new JsonRpcError.ErrorDetail(formatter.userDataProfile);
+
+            int propertyCount = reader.ReadMapHeader();
+            for (int propertyIdx = 0; propertyIdx < propertyCount; propertyIdx++)
+            {
+                if (CodePropertyName.TryRead(ref reader))
+                {
+                    result.Code = context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (MessagePropertyName.TryRead(ref reader))
+                {
+                    result.Message = context.GetConverter<string>(context.TypeShapeProvider).Read(ref reader, context);
+                }
+                else if (DataPropertyName.TryRead(ref reader))
+                {
+                    result.MsgPackData = GetSliceForNextToken(ref reader, context);
+                }
+                else
+                {
+                    reader.Skip(context);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Writes a JSON-RPC error detail to the specified MessagePack writer.
+        /// </summary>
+        /// <param name="writer">The MessagePack writer to write to.</param>
+        /// <param name="value">The JSON-RPC error detail to write.</param>
+        /// <param name="context">The serialization context.</param>
+        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to user data context")]
+        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError.ErrorDetail? value, SerializationContext context)
+        {
+            Requires.NotNull(value!, nameof(value));
+
+            NerdbankMessagePackFormatter formatter = context.GetFormatter();
+            context.DepthStep();
+
+            writer.WriteMapHeader(3);
+
+            writer.Write(CodePropertyName);
+            context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider)
+                .Write(ref writer, value.Code, context);
+
+            writer.Write(MessagePropertyName);
+            writer.Write(value.Message);
+
+            writer.Write(DataPropertyName);
+            formatter.userDataProfile.Serialize(ref writer, value.Data, context.CancellationToken);
+        }
+
+        /// <summary>
+        /// Gets the JSON schema for the specified type.
+        /// </summary>
+        /// <param name="context">The JSON schema context.</param>
+        /// <param name="typeShape">The type shape.</param>
+        /// <returns>The JSON schema for the specified type.</returns>
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(JsonRpcErrorDetailConverter));
+        }
+    }
+
+    internal class TraceParentConverter : MessagePackConverter<TraceParent>
+    {
+        public unsafe override TraceParent Read(ref MessagePackReader reader, SerializationContext context)
+        {
+            context.DepthStep();
+
+            if (reader.ReadArrayHeader() != 2)
+            {
+                throw new NotSupportedException("Unexpected array length.");
+            }
+
+            var result = default(TraceParent);
+            result.Version = reader.ReadByte();
+            if (result.Version != 0)
+            {
+                throw new NotSupportedException("traceparent version " + result.Version + " is not supported.");
+            }
+
+            if (reader.ReadArrayHeader() != 3)
+            {
+                throw new NotSupportedException("Unexpected array length in version-format.");
+            }
+
+            ReadOnlySequence<byte> bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected traceid not found.");
+            bytes.CopyTo(new Span<byte>(result.TraceId, TraceParent.TraceIdByteCount));
+
+            bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected parentid not found.");
+            bytes.CopyTo(new Span<byte>(result.ParentId, TraceParent.ParentIdByteCount));
+
+            result.Flags = (TraceParent.TraceFlags)reader.ReadByte();
+
+            return result;
+        }
+
+        public unsafe override void Write(ref MessagePackWriter writer, in TraceParent value, SerializationContext context)
+        {
+            if (value.Version != 0)
+            {
+                throw new NotSupportedException("traceparent version " + value.Version + " is not supported.");
+            }
+
+            context.DepthStep();
+
+            writer.WriteArrayHeader(2);
+
+            writer.Write(value.Version);
+
+            writer.WriteArrayHeader(3);
+
+            fixed (byte* traceId = value.TraceId)
+            {
+                writer.Write(new ReadOnlySpan<byte>(traceId, TraceParent.TraceIdByteCount));
+            }
+
+            fixed (byte* parentId = value.ParentId)
+            {
+                writer.Write(new ReadOnlySpan<byte>(parentId, TraceParent.ParentIdByteCount));
+            }
+
+            writer.Write((byte)value.Flags);
+        }
+
+        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
+        {
+            return CreateUndocumentedSchema(typeof(TraceParentConverter));
+        }
     }
 
     private class RequestIdConverter : MessagePackConverter<RequestId>
@@ -1088,590 +1831,6 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         }
     }
 
-    [GenerateShape<JsonRpcMessage>]
-    private partial class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
-    {
-        private readonly NerdbankMessagePackFormatter formatter;
-
-        internal JsonRpcMessageConverter(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public override JsonRpcMessage? Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            MessagePackReader readAhead = reader.CreatePeekReader();
-            int propertyCount = readAhead.ReadMapHeader();
-
-            for (int i = 0; i < propertyCount; i++)
-            {
-                if (MethodPropertyName.TryRead(ref readAhead))
-                {
-                    return context.GetConverter<Protocol.JsonRpcRequest>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (ResultPropertyName.TryRead(ref readAhead))
-                {
-                    return context.GetConverter<Protocol.JsonRpcResult>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (ErrorPropertyName.TryRead(ref readAhead))
-                {
-                    return context.GetConverter<Protocol.JsonRpcError>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else
-                {
-                    readAhead.Skip(context);
-                }
-
-                // Skip the value of the property.
-                readAhead.Skip(context);
-            }
-
-            throw new UnrecognizedJsonRpcMessageException();
-        }
-
-        public override void Write(ref MessagePackWriter writer, in JsonRpcMessage? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-
-            context.DepthStep();
-
-            using (this.formatter.TrackSerialization(value))
-            {
-                switch (value)
-                {
-                    case Protocol.JsonRpcRequest request:
-                        context.GetConverter<Protocol.JsonRpcRequest>(context.TypeShapeProvider).Write(ref writer, request, context);
-                        break;
-                    case Protocol.JsonRpcResult result:
-                        context.GetConverter<Protocol.JsonRpcResult>(context.TypeShapeProvider).Write(ref writer, result, context);
-                        break;
-                    case Protocol.JsonRpcError error:
-                        context.GetConverter<Protocol.JsonRpcError>(context.TypeShapeProvider).Write(ref writer, error, context);
-                        break;
-                    default:
-                        throw new NotSupportedException("Unexpected JsonRpcMessage-derived type: " + value.GetType().Name);
-                }
-            }
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return base.GetJsonSchema(context, typeShape);
-        }
-    }
-
-    private partial class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
-    {
-        private readonly NerdbankMessagePackFormatter formatter;
-
-        internal JsonRpcRequestConverter(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public override Protocol.JsonRpcRequest? Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            var result = new JsonRpcRequest(this.formatter)
-            {
-                OriginalMessagePack = reader.Sequence,
-            };
-
-            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
-
-            int propertyCount = reader.ReadMapHeader();
-            for (int propertyIndex = 0; propertyIndex < propertyCount; propertyIndex++)
-            {
-                if (VersionPropertyName.TryRead(ref reader))
-                {
-                    result.Version = ReadProtocolVersion(ref reader);
-                }
-                else if (IdPropertyName.TryRead(ref reader))
-                {
-                    result.RequestId = context.GetConverter<RequestId>(null).Read(ref reader, context);
-                }
-                else if (MethodPropertyName.TryRead(ref reader))
-                {
-                    result.Method = context.GetConverter<string>(null).Read(ref reader, context);
-                }
-                else if (ParamsPropertyName.TryRead(ref reader))
-                {
-                    SequencePosition paramsTokenStartPosition = reader.Position;
-
-                    // Parse out the arguments into a dictionary or array, but don't deserialize them because we don't yet know what types to deserialize them to.
-                    switch (reader.NextMessagePackType)
-                    {
-                        case MessagePackType.Array:
-                            var positionalArgs = new ReadOnlySequence<byte>[reader.ReadArrayHeader()];
-                            for (int i = 0; i < positionalArgs.Length; i++)
-                            {
-                                positionalArgs[i] = GetSliceForNextToken(ref reader, context);
-                            }
-
-                            result.MsgPackPositionalArguments = positionalArgs;
-                            break;
-                        case MessagePackType.Map:
-                            int namedArgsCount = reader.ReadMapHeader();
-                            var namedArgs = new Dictionary<string, ReadOnlySequence<byte>>(namedArgsCount);
-                            for (int i = 0; i < namedArgsCount; i++)
-                            {
-                                string? propertyName = context.GetConverter<string>(null).Read(ref reader, context) ?? throw new MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
-                                namedArgs.Add(propertyName, GetSliceForNextToken(ref reader, context));
-                            }
-
-                            result.MsgPackNamedArguments = namedArgs;
-                            break;
-                        case MessagePackType.Nil:
-                            result.MsgPackPositionalArguments = [];
-                            reader.ReadNil();
-                            break;
-                        case MessagePackType type:
-                            throw new MessagePackSerializationException("Expected a map or array of arguments but got " + type);
-                    }
-
-                    result.MsgPackArguments = reader.Sequence.Slice(paramsTokenStartPosition, reader.Position);
-                }
-                else if (TraceParentPropertyName.TryRead(ref reader))
-                {
-                    TraceParent traceParent = context.GetConverter<TraceParent>(null).Read(ref reader, context);
-                    result.TraceParent = traceParent.ToString();
-                }
-                else if (TraceStatePropertyName.TryRead(ref reader))
-                {
-                    result.TraceState = ReadTraceState(ref reader, context);
-                }
-                else
-                {
-                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
-                }
-            }
-
-            if (topLevelProperties is not null)
-            {
-                result.TopLevelPropertyBag = new TopLevelPropertyBag(this.formatter.userDataProfile, topLevelProperties);
-            }
-
-            this.formatter.TryHandleSpecialIncomingMessage(result);
-
-            return result;
-        }
-
-        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcRequest? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-
-            context.DepthStep();
-
-            var topLevelPropertyBag = (TopLevelPropertyBag?)(value as IMessageWithTopLevelPropertyBag)?.TopLevelPropertyBag;
-
-            int mapElementCount = value.RequestId.IsEmpty ? 3 : 4;
-            if (value.TraceParent?.Length > 0)
-            {
-                mapElementCount++;
-                if (value.TraceState?.Length > 0)
-                {
-                    mapElementCount++;
-                }
-            }
-
-            mapElementCount += topLevelPropertyBag?.PropertyCount ?? 0;
-            writer.WriteMapHeader(mapElementCount);
-
-            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
-
-            if (!value.RequestId.IsEmpty)
-            {
-                writer.Write(IdPropertyName);
-                context.GetConverter<RequestId>(context.TypeShapeProvider)
-                    .Write(ref writer, value.RequestId, context);
-            }
-
-            writer.Write(MethodPropertyName);
-            writer.Write(value.Method);
-
-            writer.Write(ParamsPropertyName);
-            if (value.ArgumentsList is not null)
-            {
-                writer.WriteArrayHeader(value.ArgumentsList.Count);
-
-                for (int i = 0; i < value.ArgumentsList.Count; i++)
-                {
-                    object? arg = value.ArgumentsList[i];
-
-                    if (value.ArgumentListDeclaredTypes is null)
-                    {
-                        this.formatter.userDataProfile.SerializeObject(
-                            ref writer,
-                            arg,
-                            context.CancellationToken);
-                    }
-                    else
-                    {
-                        this.formatter.userDataProfile.SerializeObject(
-                            ref writer,
-                            arg,
-                            value.ArgumentListDeclaredTypes[i],
-                            context.CancellationToken);
-                    }
-                }
-            }
-            else if (value.NamedArguments is not null)
-            {
-                writer.WriteMapHeader(value.NamedArguments.Count);
-                foreach (KeyValuePair<string, object?> entry in value.NamedArguments)
-                {
-                    writer.Write(entry.Key);
-
-                    if (value.NamedArgumentDeclaredTypes is null)
-                    {
-                        this.formatter.userDataProfile.SerializeObject(
-                            ref writer,
-                            entry.Value,
-                            context.CancellationToken);
-                    }
-                    else
-                    {
-                        Type argType = value.NamedArgumentDeclaredTypes[entry.Key];
-                        this.formatter.userDataProfile.SerializeObject(
-                            ref writer,
-                            entry.Value,
-                            argType,
-                            context.CancellationToken);
-                    }
-                }
-            }
-            else
-            {
-                writer.WriteNil();
-            }
-
-            if (value.TraceParent?.Length > 0)
-            {
-                writer.Write(TraceParentPropertyName);
-                context.GetConverter<TraceParent>(context.TypeShapeProvider)
-                    .Write(ref writer, new TraceParent(value.TraceParent), context);
-
-                if (value.TraceState?.Length > 0)
-                {
-                    writer.Write(TraceStatePropertyName);
-                    WriteTraceState(ref writer, value.TraceState);
-                }
-            }
-
-            topLevelPropertyBag?.WriteProperties(ref writer);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(JsonRpcRequestConverter));
-        }
-
-        private static void WriteTraceState(ref MessagePackWriter writer, string traceState)
-        {
-            ReadOnlySpan<char> traceStateChars = traceState.AsSpan();
-
-            // Count elements first so we can write the header.
-            int elementCount = 1;
-            int commaIndex;
-            while ((commaIndex = traceStateChars.IndexOf(',')) >= 0)
-            {
-                elementCount++;
-                traceStateChars = traceStateChars.Slice(commaIndex + 1);
-            }
-
-            // For every element, we have a key and value to record.
-            writer.WriteArrayHeader(elementCount * 2);
-
-            traceStateChars = traceState.AsSpan();
-            while ((commaIndex = traceStateChars.IndexOf(',')) >= 0)
-            {
-                ReadOnlySpan<char> element = traceStateChars.Slice(0, commaIndex);
-                WritePair(ref writer, element);
-                traceStateChars = traceStateChars.Slice(commaIndex + 1);
-            }
-
-            // Write out the last one.
-            WritePair(ref writer, traceStateChars);
-
-            static void WritePair(ref MessagePackWriter writer, ReadOnlySpan<char> pair)
-            {
-                int equalsIndex = pair.IndexOf('=');
-                ReadOnlySpan<char> key = pair.Slice(0, equalsIndex);
-                ReadOnlySpan<char> value = pair.Slice(equalsIndex + 1);
-                writer.Write(key);
-                writer.Write(value);
-            }
-        }
-
-        private static unsafe string ReadTraceState(ref MessagePackReader reader, SerializationContext context)
-        {
-            int elements = reader.ReadArrayHeader();
-            if (elements % 2 != 0)
-            {
-                throw new NotSupportedException("Odd number of elements not expected.");
-            }
-
-            // With care, we could probably assemble this string with just two allocations (the string + a char[]).
-            var resultBuilder = new StringBuilder();
-            for (int i = 0; i < elements; i += 2)
-            {
-                if (resultBuilder.Length > 0)
-                {
-                    resultBuilder.Append(',');
-                }
-
-                // We assume the key is a frequent string, and the value is unique,
-                // so we optimize whether to use string interning or not on that basis.
-                resultBuilder.Append(context.GetConverter<string>(null).Read(ref reader, context));
-                resultBuilder.Append('=');
-                resultBuilder.Append(reader.ReadString());
-            }
-
-            return resultBuilder.ToString();
-        }
-    }
-
-    private partial class JsonRpcResultConverter : MessagePackConverter<Protocol.JsonRpcResult>
-    {
-        private readonly NerdbankMessagePackFormatter formatter;
-
-        internal JsonRpcResultConverter(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public override Protocol.JsonRpcResult Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            var result = new JsonRpcResult(this.formatter, this.formatter.userDataProfile)
-            {
-                OriginalMessagePack = reader.Sequence,
-            };
-
-            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
-
-            int propertyCount = reader.ReadMapHeader();
-            for (int propertyIndex = 0; propertyIndex < propertyCount; propertyIndex++)
-            {
-                if (VersionPropertyName.TryRead(ref reader))
-                {
-                    result.Version = ReadProtocolVersion(ref reader);
-                }
-                else if (IdPropertyName.TryRead(ref reader))
-                {
-                    result.RequestId = context.GetConverter<RequestId>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (ResultPropertyName.TryRead(ref reader))
-                {
-                    result.MsgPackResult = GetSliceForNextToken(ref reader, context);
-                }
-                else
-                {
-                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
-                }
-            }
-
-            if (topLevelProperties is not null)
-            {
-                result.TopLevelPropertyBag = new TopLevelPropertyBag(this.formatter.userDataProfile, topLevelProperties);
-            }
-
-            return result;
-        }
-
-        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcResult? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-
-            context.DepthStep();
-
-            var topLevelPropertyBagMessage = value as IMessageWithTopLevelPropertyBag;
-
-            int mapElementCount = 3;
-            mapElementCount += (topLevelPropertyBagMessage?.TopLevelPropertyBag as TopLevelPropertyBag)?.PropertyCount ?? 0;
-            writer.WriteMapHeader(mapElementCount);
-
-            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
-
-            writer.Write(IdPropertyName);
-            context.GetConverter<RequestId>(context.TypeShapeProvider).Write(ref writer, value.RequestId, context);
-
-            writer.Write(ResultPropertyName);
-
-            if (value.Result is null)
-            {
-                writer.WriteNil();
-            }
-
-            if (value.ResultDeclaredType is not null && value.ResultDeclaredType != typeof(void))
-            {
-                this.formatter.userDataProfile.SerializeObject(ref writer, value.Result, value.ResultDeclaredType, context.CancellationToken);
-            }
-            else
-            {
-                this.formatter.userDataProfile.SerializeObject(ref writer, value.Result, context.CancellationToken);
-            }
-
-            (topLevelPropertyBagMessage?.TopLevelPropertyBag as TopLevelPropertyBag)?.WriteProperties(ref writer);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(JsonRpcResultConverter));
-        }
-    }
-
-    private partial class JsonRpcErrorConverter : MessagePackConverter<Protocol.JsonRpcError>
-    {
-        private readonly NerdbankMessagePackFormatter formatter;
-
-        internal JsonRpcErrorConverter(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public override Protocol.JsonRpcError Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            var error = new JsonRpcError(this.formatter.userDataProfile)
-            {
-                OriginalMessagePack = reader.Sequence,
-            };
-
-            Dictionary<string, ReadOnlySequence<byte>>? topLevelProperties = null;
-
-            context.DepthStep();
-            int propertyCount = reader.ReadMapHeader();
-            for (int propertyIdx = 0; propertyIdx < propertyCount; propertyIdx++)
-            {
-                if (VersionPropertyName.TryRead(ref reader))
-                {
-                    error.Version = ReadProtocolVersion(ref reader);
-                }
-                else if (IdPropertyName.TryRead(ref reader))
-                {
-                    error.RequestId = context.GetConverter<RequestId>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (ErrorPropertyName.TryRead(ref reader))
-                {
-                    error.Error = context.GetConverter<Protocol.JsonRpcError.ErrorDetail>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else
-                {
-                    ReadUnknownProperty(ref reader, context, ref topLevelProperties, reader.ReadStringSpan());
-                }
-            }
-
-            if (topLevelProperties is not null)
-            {
-                error.TopLevelPropertyBag = new TopLevelPropertyBag(this.formatter.userDataProfile, topLevelProperties);
-            }
-
-            return error;
-        }
-
-        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-
-            var topLevelPropertyBag = (TopLevelPropertyBag?)(value as IMessageWithTopLevelPropertyBag)?.TopLevelPropertyBag;
-
-            context.DepthStep();
-            int mapElementCount = 3;
-            mapElementCount += topLevelPropertyBag?.PropertyCount ?? 0;
-            writer.WriteMapHeader(mapElementCount);
-
-            WriteProtocolVersionPropertyAndValue(ref writer, value.Version);
-
-            writer.Write(IdPropertyName);
-            context.GetConverter<RequestId>(context.TypeShapeProvider)
-                .Write(ref writer, value.RequestId, context);
-
-            writer.Write(ErrorPropertyName);
-            context.GetConverter<Protocol.JsonRpcError.ErrorDetail>(context.TypeShapeProvider)
-                .Write(ref writer, value.Error, context);
-
-            topLevelPropertyBag?.WriteProperties(ref writer);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(JsonRpcErrorConverter));
-        }
-    }
-
-    private partial class JsonRpcErrorDetailConverter : MessagePackConverter<Protocol.JsonRpcError.ErrorDetail>
-    {
-        private static readonly MessagePackString CodePropertyName = new("code");
-        private static readonly MessagePackString MessagePropertyName = new("message");
-        private static readonly MessagePackString DataPropertyName = new("data");
-
-        private readonly NerdbankMessagePackFormatter formatter;
-
-        internal JsonRpcErrorDetailConverter(NerdbankMessagePackFormatter formatter)
-        {
-            this.formatter = formatter;
-        }
-
-        public override Protocol.JsonRpcError.ErrorDetail Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            var result = new JsonRpcError.ErrorDetail(this.formatter.userDataProfile);
-
-            int propertyCount = reader.ReadMapHeader();
-            for (int propertyIdx = 0; propertyIdx < propertyCount; propertyIdx++)
-            {
-                if (CodePropertyName.TryRead(ref reader))
-                {
-                    result.Code = context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (MessagePropertyName.TryRead(ref reader))
-                {
-                    result.Message = context.GetConverter<string>(context.TypeShapeProvider).Read(ref reader, context);
-                }
-                else if (DataPropertyName.TryRead(ref reader))
-                {
-                    result.MsgPackData = GetSliceForNextToken(ref reader, context);
-                }
-                else
-                {
-                    reader.Skip(context);
-                }
-            }
-
-            return result;
-        }
-
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to user data context")]
-        public override void Write(ref MessagePackWriter writer, in Protocol.JsonRpcError.ErrorDetail? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-
-            context.DepthStep();
-
-            writer.WriteMapHeader(3);
-
-            writer.Write(CodePropertyName);
-            context.GetConverter<JsonRpcErrorCode>(context.TypeShapeProvider)
-                .Write(ref writer, value.Code, context);
-
-            writer.Write(MessagePropertyName);
-            writer.Write(value.Message);
-
-            writer.Write(DataPropertyName);
-            this.formatter.userDataProfile.Serialize(ref writer, value.Data, context.CancellationToken);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(JsonRpcErrorDetailConverter));
-        }
-    }
-
     /// <summary>
     /// Enables formatting the default/empty <see cref="EventArgs"/> class.
     /// </summary>
@@ -1702,74 +1861,6 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
         {
             return CreateUndocumentedSchema(typeof(EventArgsConverter));
-        }
-    }
-
-    private class TraceParentConverter : MessagePackConverter<TraceParent>
-    {
-        public unsafe override TraceParent Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            if (reader.ReadArrayHeader() != 2)
-            {
-                throw new NotSupportedException("Unexpected array length.");
-            }
-
-            var result = default(TraceParent);
-            result.Version = reader.ReadByte();
-            if (result.Version != 0)
-            {
-                throw new NotSupportedException("traceparent version " + result.Version + " is not supported.");
-            }
-
-            if (reader.ReadArrayHeader() != 3)
-            {
-                throw new NotSupportedException("Unexpected array length in version-format.");
-            }
-
-            ReadOnlySequence<byte> bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected traceid not found.");
-            bytes.CopyTo(new Span<byte>(result.TraceId, TraceParent.TraceIdByteCount));
-
-            bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected parentid not found.");
-            bytes.CopyTo(new Span<byte>(result.ParentId, TraceParent.ParentIdByteCount));
-
-            result.Flags = (TraceParent.TraceFlags)reader.ReadByte();
-
-            return result;
-        }
-
-        public unsafe override void Write(ref MessagePackWriter writer, in TraceParent value, SerializationContext context)
-        {
-            if (value.Version != 0)
-            {
-                throw new NotSupportedException("traceparent version " + value.Version + " is not supported.");
-            }
-
-            context.DepthStep();
-
-            writer.WriteArrayHeader(2);
-
-            writer.Write(value.Version);
-
-            writer.WriteArrayHeader(3);
-
-            fixed (byte* traceId = value.TraceId)
-            {
-                writer.Write(new ReadOnlySpan<byte>(traceId, TraceParent.TraceIdByteCount));
-            }
-
-            fixed (byte* parentId = value.ParentId)
-            {
-                writer.Write(new ReadOnlySpan<byte>(parentId, TraceParent.ParentIdByteCount));
-            }
-
-            writer.Write((byte)value.Flags);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(TraceParentConverter));
         }
     }
 
@@ -1976,14 +2067,14 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     private partial class JsonRpcResult : JsonRpcResultBase, IJsonRpcMessagePackRetention
     {
         private readonly NerdbankMessagePackFormatter formatter;
-        private readonly FormatterProfile formatterContext;
+        private readonly FormatterProfile formatterProfile;
 
         private Exception? resultDeserializationException;
 
-        internal JsonRpcResult(NerdbankMessagePackFormatter formatter, FormatterProfile serializationOptions)
+        internal JsonRpcResult(NerdbankMessagePackFormatter formatter, FormatterProfile formatterProfile)
         {
             this.formatter = formatter;
-            this.formatterContext = serializationOptions;
+            this.formatterProfile = formatterProfile;
         }
 
         public ReadOnlySequence<byte> OriginalMessagePack { get; internal set; }
@@ -1999,8 +2090,8 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
             return this.MsgPackResult.IsEmpty
                 ? (T)this.Result!
-                : this.formatterContext.Deserialize<T>(this.MsgPackResult)
-                ?? throw new MessagePackSerializationException(Resources.FailureDeserializingJsonRpc);
+                : this.formatterProfile.Deserialize<T>(this.MsgPackResult)
+                ?? throw new MessagePackSerializationException("Failed to deserialize result.");
         }
 
         protected internal override void SetExpectedResultType(Type resultType)
@@ -2011,7 +2102,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             {
                 using (this.formatter.TrackDeserialization(this))
                 {
-                    this.Result = this.formatterContext.DeserializeObject(this.MsgPackResult, resultType);
+                    this.Result = this.formatterProfile.DeserializeObject(this.MsgPackResult, resultType);
                 }
 
                 this.MsgPackResult = default;
@@ -2030,7 +2121,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             this.OriginalMessagePack = default;
         }
 
-        protected override TopLevelPropertyBagBase? CreateTopLevelPropertyBag() => new TopLevelPropertyBag(this.formatterContext);
+        protected override TopLevelPropertyBagBase? CreateTopLevelPropertyBag() => new TopLevelPropertyBag(this.formatterProfile);
     }
 
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]

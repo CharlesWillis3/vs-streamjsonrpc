@@ -393,7 +393,7 @@ public abstract class JsonRpcTests : TestBase
         Assert.Equal("test!", result);
     }
 
-    [Theory, PairwiseData]
+    [Theory(Timeout = 2 * 1000), PairwiseData] // TODO: Temporary for development
     public async Task CanCallAsyncMethodThatThrows(ExceptionProcessing exceptionStrategy)
     {
         this.clientRpc.AllowModificationWhileListening = true;
@@ -433,7 +433,7 @@ public abstract class JsonRpcTests : TestBase
         }
     }
 
-    [Theory, PairwiseData]
+    [Theory(Timeout = 2 * 1000), PairwiseData] // TODO: Temporary for development
     public async Task CanCallAsyncMethodThatThrowsExceptionWithoutDeserializingConstructor(ExceptionProcessing exceptionStrategy)
     {
         this.clientRpc.AllowModificationWhileListening = true;
@@ -458,7 +458,7 @@ public abstract class JsonRpcTests : TestBase
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
     public async Task CanCallAsyncMethodThatThrowsExceptionWhileSerializingException()
     {
         this.clientRpc.AllowModificationWhileListening = true;
@@ -472,7 +472,7 @@ public abstract class JsonRpcTests : TestBase
         Assert.Null(exception.InnerException);
     }
 
-    [Fact]
+    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
     public async Task ThrowCustomExceptionThatImplementsISerializableProperly()
     {
         this.clientRpc.AllowModificationWhileListening = true;
@@ -2249,7 +2249,7 @@ public abstract class JsonRpcTests : TestBase
         Assert.StrictEqual(COR_E_UNAUTHORIZEDACCESS, errorData.HResult);
     }
 
-    [Theory, PairwiseData]
+    [Theory(Timeout = 2 * 1000), PairwiseData] // TODO: Temporary for development
     public async Task ExceptionTreeThrownFromServerIsDeserializedAtClient(ExceptionProcessing exceptionStrategy)
     {
         this.clientRpc.AllowModificationWhileListening = true;
@@ -2478,7 +2478,7 @@ public abstract class JsonRpcTests : TestBase
         Assert.Equal(this.serverRpc.ExceptionOptions.RecursionLimit, CountRecursionLevel(this.server.ReceivedException));
     }
 
-    [Fact]
+    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
     public async Task ExceptionRecursionLimit_ThrownSerialization()
     {
         this.serverRpc.AllowModificationWhileListening = true;
@@ -2494,7 +2494,7 @@ public abstract class JsonRpcTests : TestBase
         Assert.Equal(this.clientRpc.ExceptionOptions.RecursionLimit, actualRecursionLevel);
     }
 
-    [Fact]
+    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
     public async Task ExceptionRecursionLimit_ThrownDeserialization()
     {
         this.clientRpc.AllowModificationWhileListening = true;

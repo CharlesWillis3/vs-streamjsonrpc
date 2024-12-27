@@ -32,7 +32,7 @@ public partial class NerdbankMessagePackFormatter
         {
             return typeCode switch
             {
-                TypeCode.Object => this.formatterContext.Deserialize<object>((RawMessagePack)value),
+                TypeCode.Object => this.formatterContext.Deserialize<object>((RawMessagePack)value)!,
                 _ => ExceptionSerializationHelpers.Convert(this, value, typeCode),
             };
         }

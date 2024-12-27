@@ -5,10 +5,6 @@ using MessagePack.Formatters;
 using MessagePack.Resolvers;
 using Microsoft.VisualStudio.Threading;
 using Nerdbank.Streams;
-using StreamJsonRpc;
-using StreamJsonRpc.Protocol;
-using Xunit;
-using Xunit.Abstractions;
 
 public class MessagePackFormatterTests : FormatterTestBase<MessagePackFormatter>
 {

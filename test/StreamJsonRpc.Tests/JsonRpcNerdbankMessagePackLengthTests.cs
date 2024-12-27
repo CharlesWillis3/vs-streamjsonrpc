@@ -392,11 +392,14 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
         out IJsonRpcMessageHandler clientMessageHandler,
         bool controlledFlushingClient)
     {
-        serverMessageFormatter = new NerdbankMessagePackFormatter();
-        clientMessageFormatter = new NerdbankMessagePackFormatter();
+        NerdbankMessagePackFormatter serverFormatter = new();
+        serverFormatter.SetFormatterProfile(Configure);
 
-        ((NerdbankMessagePackFormatter)serverMessageFormatter).SetFormatterProfile(Configure);
-        ((NerdbankMessagePackFormatter)clientMessageFormatter).SetFormatterProfile(Configure);
+        NerdbankMessagePackFormatter clientFormatter = new();
+        clientFormatter.SetFormatterProfile(Configure);
+
+        serverMessageFormatter = serverFormatter;
+        clientMessageFormatter = clientFormatter;
 
         serverMessageHandler = new LengthHeaderMessageHandler(serverStream, serverStream, serverMessageFormatter);
         clientMessageHandler = controlledFlushingClient
@@ -405,6 +408,7 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
 
         static NerdbankMessagePackFormatter.FormatterProfile Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
         {
+            b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionBaseClass>, UnionBaseClass>();
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
             b.RegisterConverter(new CustomExtensionConverter());
@@ -418,9 +422,11 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
     protected override object[] CreateFormatterIntrinsicParamsObject(string arg) => [];
 
     [GenerateShape]
-#pragma warning disable CS0618
+#if NET
+    [KnownSubType<UnionDerivedClass>]
+#else
     [KnownSubType(typeof(UnionDerivedClass))]
-#pragma warning restore CS0618
+#endif
     public abstract partial class UnionBaseClass
     {
     }

@@ -184,35 +184,10 @@ public sealed partial class NerdbankMessagePackFormatter
                 return this.baseProfile;
             }
 
-            ITypeShapeProvider provider = this.typeShapeProvidersBuilder.Count == 1
-                ? this.typeShapeProvidersBuilder[0]
-                : new CompositeTypeShapeProvider(this.typeShapeProvidersBuilder.ToImmutable());
-
-            return new FormatterProfile(this.baseProfile.Serializer, provider);
-        }
-    }
-
-    private class CompositeTypeShapeProvider : ITypeShapeProvider
-    {
-        private readonly ImmutableArray<ITypeShapeProvider> providers;
-
-        internal CompositeTypeShapeProvider(ImmutableArray<ITypeShapeProvider> providers)
-        {
-            this.providers = providers;
-        }
-
-        public ITypeShape? GetShape(Type type)
-        {
-            foreach (ITypeShapeProvider provider in this.providers)
-            {
-                ITypeShape? shape = provider.GetShape(type);
-                if (shape is not null)
-                {
-                    return shape;
-                }
-            }
-
-            return null;
+            return new FormatterProfile(
+                this.baseProfile.Source,
+                this.baseProfile.Serializer,
+                this.typeShapeProvidersBuilder.ToImmutable());
         }
     }
 }
