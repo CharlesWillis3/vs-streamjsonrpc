@@ -409,10 +409,13 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
         static NerdbankMessagePackFormatter.FormatterProfile Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
         {
             b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionBaseClass>, UnionBaseClass>();
+            b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionDerivedClass>, UnionDerivedClass>();
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
             b.RegisterConverter(new CustomExtensionConverter());
             b.RegisterStreamType<Nerdbank.FullDuplexStream>();
+            b.RegisterProgressType<Progress<UnionBaseClass>, UnionBaseClass>();
+            b.RegisterProgressType<Progress<UnionDerivedClass>, UnionDerivedClass>();
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
             return b.Build();

@@ -61,6 +61,15 @@ public sealed partial class NerdbankMessagePackFormatter
 
         private int ProvidersCount => shapeProviders.Length;
 
+        internal FormatterProfile WithFormatterState(NerdbankMessagePackFormatter formatter)
+        {
+            SerializationContext nextContext = serializer.StartingContext;
+            nextContext[SerializationContextExtensions.FormatterKey] = formatter;
+            MessagePackSerializer nextSerializer = serializer with { StartingContext = nextContext };
+
+            return new(this.Source, nextSerializer, shapeProviders);
+        }
+
         private string GetDebuggerDisplay() => $"{this.Source} [{this.ProvidersCount}]";
 
         /// <summary>
@@ -68,7 +77,7 @@ public sealed partial class NerdbankMessagePackFormatter
         /// from that provider and try to cache it. If the resolved type shape is not sourced from the
         /// passed provider, it will throw an ArgumentException with the message:
         /// System.ArgumentException : The specified shape provider is not valid for this cache.
-        /// To avoid this, the resolver does not implement ITypeShapeProvider directly so that it cannot
+        /// To avoid this, this class does not implement ITypeShapeProvider directly so that it cannot
         /// be passed to the serializer. Instead, use <see cref="ResolveShapeProvider{T}()"/> to get the
         /// provider that will resolve the shape for the specified type, or if the serialization method supports
         /// if use <see cref="ResolveShape{T}()"/> to get the shape directly.

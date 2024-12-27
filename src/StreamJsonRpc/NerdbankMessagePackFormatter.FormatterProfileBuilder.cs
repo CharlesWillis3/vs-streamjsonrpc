@@ -5,7 +5,6 @@ using System.Collections.Immutable;
 using System.IO.Pipelines;
 using Nerdbank.MessagePack;
 using PolyType;
-using PolyType.Abstractions;
 using StreamJsonRpc.Reflection;
 
 namespace StreamJsonRpc;
@@ -20,7 +19,6 @@ public sealed partial class NerdbankMessagePackFormatter
     /// </summary>
     public class FormatterProfileBuilder
     {
-        private readonly NerdbankMessagePackFormatter formatter;
         private readonly FormatterProfile baseProfile;
 
         private ImmutableArray<ITypeShapeProvider>.Builder? typeShapeProvidersBuilder = null;
@@ -28,11 +26,9 @@ public sealed partial class NerdbankMessagePackFormatter
         /// <summary>
         /// Initializes a new instance of the <see cref="FormatterProfileBuilder"/> class.
         /// </summary>
-        /// <param name="formatter">The formatter to use.</param>
         /// <param name="baseProfile">The base profile to build upon.</param>
-        internal FormatterProfileBuilder(NerdbankMessagePackFormatter formatter, FormatterProfile baseProfile)
+        internal FormatterProfileBuilder(FormatterProfile baseProfile)
         {
-            this.formatter = formatter;
             this.baseProfile = baseProfile;
         }
 
@@ -54,7 +50,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterAsyncEnumerableType<TEnumerable, TElement>()
             where TEnumerable : IAsyncEnumerable<TElement>
         {
-            MessagePackConverter<TEnumerable> converter = this.formatter.asyncEnumerableConverterResolver.GetConverter<TEnumerable>();
+            MessagePackConverter<TEnumerable> converter = AsyncEnumerableConverterResolver.GetConverter<TEnumerable>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -86,7 +82,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterProgressType<TProgress, TReport>()
             where TProgress : IProgress<TReport>
         {
-            MessagePackConverter<TProgress> converter = this.formatter.progressConverterResolver.GetConverter<TProgress>();
+            MessagePackConverter<TProgress> converter = ProgressConverterResolver.GetConverter<TProgress>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -97,7 +93,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterDuplexPipeType<TPipe>()
             where TPipe : IDuplexPipe
         {
-            MessagePackConverter<TPipe> converter = this.formatter.pipeConverterResolver.GetConverter<TPipe>();
+            MessagePackConverter<TPipe> converter = PipeConverterResolver.GetConverter<TPipe>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -108,7 +104,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterPipeReaderType<TReader>()
             where TReader : PipeReader
         {
-            MessagePackConverter<TReader> converter = this.formatter.pipeConverterResolver.GetConverter<TReader>();
+            MessagePackConverter<TReader> converter = PipeConverterResolver.GetConverter<TReader>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -119,7 +115,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterPipeWriterType<TWriter>()
             where TWriter : PipeWriter
         {
-            MessagePackConverter<TWriter> converter = this.formatter.pipeConverterResolver.GetConverter<TWriter>();
+            MessagePackConverter<TWriter> converter = PipeConverterResolver.GetConverter<TWriter>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -130,7 +126,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterStreamType<TStream>()
             where TStream : Stream
         {
-            MessagePackConverter<TStream> converter = this.formatter.pipeConverterResolver.GetConverter<TStream>();
+            MessagePackConverter<TStream> converter = PipeConverterResolver.GetConverter<TStream>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -141,7 +137,7 @@ public sealed partial class NerdbankMessagePackFormatter
         public void RegisterExceptionType<TException>()
             where TException : Exception
         {
-            MessagePackConverter<TException> converter = this.formatter.exceptionResolver.GetConverter<TException>();
+            MessagePackConverter<TException> converter = MessagePackExceptionConverterResolver.GetConverter<TException>();
             this.baseProfile.Serializer.RegisterConverter(converter);
         }
 
@@ -160,7 +156,6 @@ public sealed partial class NerdbankMessagePackFormatter
             {
                 var converter = (RpcMarshalableConverter<T>)Activator.CreateInstance(
                     typeof(RpcMarshalableConverter<>).MakeGenericType(typeof(T)),
-                    this.formatter,
                     proxyOptions,
                     targetOptions,
                     attribute)!;
