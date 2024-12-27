@@ -34,7 +34,6 @@ public class MarshalableProxyNerdbankMessagePackTests : MarshalableProxyTests
             b.RegisterRpcMarshalableType<IMarshalableSubType2Extended>();
             b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
-            return b.Build();
         });
 
         return formatter;

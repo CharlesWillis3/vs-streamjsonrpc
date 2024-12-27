@@ -14,9 +14,9 @@ public partial class NerdbankMessagePackFormatter
 {
     private class MessagePackFormatterConverter : IFormatterConverter
     {
-        private readonly FormatterProfile formatterContext;
+        private readonly Profile formatterContext;
 
-        internal MessagePackFormatterConverter(FormatterProfile formatterContext)
+        internal MessagePackFormatterConverter(Profile formatterContext)
         {
             this.formatterContext = formatterContext;
         }

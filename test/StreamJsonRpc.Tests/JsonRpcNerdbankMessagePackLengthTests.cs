@@ -406,7 +406,7 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
             ? new DelayedFlushingHandler(clientStream, clientMessageFormatter)
             : new LengthHeaderMessageHandler(clientStream, clientStream, clientMessageFormatter);
 
-        static NerdbankMessagePackFormatter.FormatterProfile Configure(NerdbankMessagePackFormatter.FormatterProfileBuilder b)
+        static void Configure(NerdbankMessagePackFormatter.Profile.Builder b)
         {
             b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionBaseClass>, UnionBaseClass>();
             b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionDerivedClass>, UnionDerivedClass>();
@@ -418,7 +418,6 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
             b.RegisterProgressType<Progress<UnionDerivedClass>, UnionDerivedClass>();
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
-            return b.Build();
         }
     }
 

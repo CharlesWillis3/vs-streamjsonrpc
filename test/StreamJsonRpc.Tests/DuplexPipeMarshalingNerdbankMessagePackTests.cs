@@ -24,7 +24,6 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
             b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
-            return b.Build();
         });
 
         NerdbankMessagePackFormatter clientFormatter = new()
@@ -38,7 +37,6 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
             b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
-            return b.Build();
         });
 
         this.serverMessageFormatter = serverFormatter;

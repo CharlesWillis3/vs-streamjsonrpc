@@ -43,7 +43,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// The serializer context to use for top-level RPC messages.
     /// </summary>
-    private readonly FormatterProfile rpcProfile;
+    private readonly Profile rpcProfile;
 
     private readonly ToStringHelper serializationToStringHelper = new();
 
@@ -52,7 +52,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// The serializer to use for user data (e.g. arguments, return values and errors).
     /// </summary>
-    private FormatterProfile userDataProfile;
+    private Profile userDataProfile;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NerdbankMessagePackFormatter"/> class.
@@ -73,8 +73,8 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         serializer.RegisterConverter(RequestIdConverter.Instance);
         serializer.RegisterConverter(new TraceParentConverter());
 
-        this.rpcProfile = new FormatterProfile(
-            FormatterProfile.ProfileSource.Internal,
+        this.rpcProfile = new Profile(
+            Profile.ProfileSource.Internal,
             serializer,
             [ShapeProvider_StreamJsonRpc.Default]);
 
@@ -94,15 +94,14 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         userSerializer.RegisterConverter(RequestIdConverter.Instance);
 
         // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
-        userSerializer.RegisterConverter(new TraceParentConverter());
         userSerializer.RegisterConverter(EventArgsConverter.Instance);
 
-        this.userDataProfile = new FormatterProfile(
-            FormatterProfile.ProfileSource.External,
+        this.userDataProfile = new Profile(
+            Profile.ProfileSource.External,
             userSerializer,
             [ReflectionTypeShapeProvider.Default]);
 
-        this.ProfileBuilder = new FormatterProfileBuilder(this.userDataProfile);
+        this.ProfileBuilder = new Profile.Builder(this.userDataProfile);
     }
 
     private interface IJsonRpcMessagePackRetention
@@ -119,28 +118,43 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Gets the profile builder for the formatter.
     /// </summary>
-    public FormatterProfileBuilder ProfileBuilder { get; }
+    public Profile.Builder ProfileBuilder { get; }
 
     /// <summary>
-    /// Sets the formatter profile.
+    /// Sets the formatter profile for user data.
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         For improved startup performance, use <see cref="ProfileBuilder"/>
+    ///         to configure a reusable profile and set it here for each instance of this formatter.
+    ///         The profile must be configured before any messages are serialized or deserialized.
+    ///     </para>
+    ///     <para>
+    ///         If not set, a default profile is used which will resolve types using reflection emit.
+    ///     </para>
+    /// </remarks>
     /// <param name="profile">The formatter profile to set.</param>
-    public void SetFormatterProfile(FormatterProfile profile)
+    public void SetFormatterProfile(Profile profile)
     {
         Requires.NotNull(profile, nameof(profile));
         this.userDataProfile = profile.WithFormatterState(this);
     }
 
     /// <summary>
-    /// Configures the serialization context for user data with the specified configuration action.
+    /// Configures the formatter profile for user data with the specified configuration action.
     /// </summary>
-    /// <param name="configure">The action to configure the serialization context.</param>
-    public void SetFormatterProfile(Func<FormatterProfileBuilder, FormatterProfile> configure)
+    /// <remarks>
+    ///     Generally prefer using <see cref="SetFormatterProfile(Profile)"/> over this method
+    ///     as it is more efficient to reuse a profile across multiple instances of this formatter.
+    /// </remarks>
+    /// <param name="configure">The configuration action.</param>
+    public void SetFormatterProfile(Action<Profile.Builder> configure)
     {
         Requires.NotNull(configure, nameof(configure));
 
-        var builder = new FormatterProfileBuilder(this.userDataProfile);
-        this.SetFormatterProfile(configure(builder));
+        var builder = new Profile.Builder(this.userDataProfile);
+        configure(builder);
+        this.SetFormatterProfile(builder.Build());
     }
 
     /// <inheritdoc/>
@@ -1797,7 +1811,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
     private class TopLevelPropertyBag : TopLevelPropertyBagBase
     {
-        private readonly FormatterProfile formatterProfile;
+        private readonly Profile formatterProfile;
         private readonly IReadOnlyDictionary<string, ReadOnlySequence<byte>>? inboundUnknownProperties;
 
         /// <summary>
@@ -1806,7 +1820,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         /// </summary>
         /// <param name="formatterProfile">The profile use for this data.</param>
         /// <param name="inboundUnknownProperties">The map of unrecognized inbound properties.</param>
-        internal TopLevelPropertyBag(FormatterProfile formatterProfile, IReadOnlyDictionary<string, ReadOnlySequence<byte>> inboundUnknownProperties)
+        internal TopLevelPropertyBag(Profile formatterProfile, IReadOnlyDictionary<string, ReadOnlySequence<byte>> inboundUnknownProperties)
             : base(isOutbound: false)
         {
             this.formatterProfile = formatterProfile;
@@ -1818,7 +1832,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         /// for an outbound message.
         /// </summary>
         /// <param name="formatterProfile">The profile to use for this data.</param>
-        internal TopLevelPropertyBag(FormatterProfile formatterProfile)
+        internal TopLevelPropertyBag(Profile formatterProfile)
             : base(isOutbound: true)
         {
             this.formatterProfile = formatterProfile;
@@ -1998,11 +2012,11 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     private partial class JsonRpcResult : JsonRpcResultBase, IJsonRpcMessagePackRetention
     {
         private readonly NerdbankMessagePackFormatter formatter;
-        private readonly FormatterProfile formatterProfile;
+        private readonly Profile formatterProfile;
 
         private Exception? resultDeserializationException;
 
-        internal JsonRpcResult(NerdbankMessagePackFormatter formatter, FormatterProfile formatterProfile)
+        internal JsonRpcResult(NerdbankMessagePackFormatter formatter, Profile formatterProfile)
         {
             this.formatter = formatter;
             this.formatterProfile = formatterProfile;
@@ -2058,9 +2072,9 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     [DebuggerDisplay("{" + nameof(DebuggerDisplay) + ",nq}")]
     private class JsonRpcError : JsonRpcErrorBase, IJsonRpcMessagePackRetention
     {
-        private readonly FormatterProfile formatterProfile;
+        private readonly Profile formatterProfile;
 
-        public JsonRpcError(FormatterProfile formatterProfile)
+        public JsonRpcError(Profile formatterProfile)
         {
             this.formatterProfile = formatterProfile;
         }
@@ -2082,9 +2096,9 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
         internal new class ErrorDetail : Protocol.JsonRpcError.ErrorDetail
         {
-            private readonly FormatterProfile formatterProfile;
+            private readonly Profile formatterProfile;
 
-            internal ErrorDetail(FormatterProfile formatterProfile)
+            internal ErrorDetail(Profile formatterProfile)
             {
                 this.formatterProfile = formatterProfile ?? throw new ArgumentNullException(nameof(formatterProfile));
             }

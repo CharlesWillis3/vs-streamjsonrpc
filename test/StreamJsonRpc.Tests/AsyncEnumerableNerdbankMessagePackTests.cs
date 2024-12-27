@@ -11,21 +11,18 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
     protected override void InitializeFormattersAndHandlers()
     {
         NerdbankMessagePackFormatter serverFormatter = new();
-        NerdbankMessagePackFormatter.FormatterProfile serverProfile = ConfigureContext(serverFormatter.ProfileBuilder);
-        serverFormatter.SetFormatterProfile(serverProfile);
+        serverFormatter.SetFormatterProfile(ConfigureContext);
 
         NerdbankMessagePackFormatter clientFormatter = new();
-        NerdbankMessagePackFormatter.FormatterProfile clientProfile = ConfigureContext(clientFormatter.ProfileBuilder);
-        clientFormatter.SetFormatterProfile(clientProfile);
+        clientFormatter.SetFormatterProfile(ConfigureContext);
 
         this.serverMessageFormatter = serverFormatter;
         this.clientMessageFormatter = clientFormatter;
 
-        static NerdbankMessagePackFormatter.FormatterProfile ConfigureContext(NerdbankMessagePackFormatter.FormatterProfileBuilder profileBuilder)
+        static void ConfigureContext(NerdbankMessagePackFormatter.Profile.Builder profileBuilder)
         {
             profileBuilder.RegisterAsyncEnumerableType<IAsyncEnumerable<int>, int>();
             profileBuilder.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
-            return profileBuilder.Build();
         }
     }
 }

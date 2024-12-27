@@ -15,20 +15,20 @@ namespace StreamJsonRpc;
 public sealed partial class NerdbankMessagePackFormatter
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="FormatterProfile"/> class.
+    /// Initializes a new instance of the <see cref="Profile"/> class.
     /// </summary>
     /// <param name="serializer">The MessagePack serializer to use.</param>
     /// <param name="shapeProviders">The type shape providers to use.</param>
     [DebuggerDisplay($"{{{nameof(GetDebuggerDisplay)}(),nq}}")]
-    public class FormatterProfile(MessagePackSerializer serializer, ImmutableArray<ITypeShapeProvider> shapeProviders)
+    public partial class Profile(MessagePackSerializer serializer, ImmutableArray<ITypeShapeProvider> shapeProviders)
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="FormatterProfile"/> class.
+        /// Initializes a new instance of the <see cref="Profile"/> class.
         /// </summary>
         /// <param name="source">The source of the profile.</param>
         /// <param name="serializer">The MessagePack serializer to use.</param>
         /// <param name="shapeProviders">The type shape providers to use.</param>
-        internal FormatterProfile(ProfileSource source, MessagePackSerializer serializer, ImmutableArray<ITypeShapeProvider> shapeProviders)
+        internal Profile(ProfileSource source, MessagePackSerializer serializer, ImmutableArray<ITypeShapeProvider> shapeProviders)
             : this(serializer, shapeProviders)
         {
             this.Source = source;
@@ -61,7 +61,7 @@ public sealed partial class NerdbankMessagePackFormatter
 
         private int ProvidersCount => shapeProviders.Length;
 
-        internal FormatterProfile WithFormatterState(NerdbankMessagePackFormatter formatter)
+        internal Profile WithFormatterState(NerdbankMessagePackFormatter formatter)
         {
             SerializationContext nextContext = serializer.StartingContext;
             nextContext[SerializationContextExtensions.FormatterKey] = formatter;
