@@ -11,6 +11,7 @@ using MessagePack.Formatters;
 using Microsoft.VisualStudio.Threading;
 using Nerdbank.Streams;
 using Newtonsoft.Json;
+using NBMP = Nerdbank.MessagePack;
 
 public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
 {
@@ -618,6 +619,16 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         return weakReferenceToSource;
     }
 
+    [DataContract]
+    protected internal class CompoundEnumerableResult
+    {
+        [DataMember]
+        public string? Message { get; set; }
+
+        [DataMember]
+        public IAsyncEnumerable<int>? Enumeration { get; set; }
+    }
+
     protected class Server : IServer
     {
         /// <summary>
@@ -795,18 +806,9 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         public Task DoSomethingAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    [DataContract]
-    protected class CompoundEnumerableResult
-    {
-        [DataMember]
-        public string? Message { get; set; }
-
-        [DataMember]
-        public IAsyncEnumerable<int>? Enumeration { get; set; }
-    }
-
     [JsonConverter(typeof(ThrowingJsonConverter<UnserializableType>))]
     [MessagePackFormatter(typeof(ThrowingMessagePackFormatter<UnserializableType>))]
+    [NBMP.MessagePackConverter(typeof(ThrowingMessagePackNerdbankConverter<UnserializableType>))]
     protected class UnserializableType
     {
     }
@@ -832,6 +834,19 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         }
 
         public void Serialize(ref MessagePackWriter writer, T value, MessagePackSerializerOptions options)
+        {
+            throw new Exception();
+        }
+    }
+
+    protected class ThrowingMessagePackNerdbankConverter<T> : NBMP.MessagePackConverter<T>
+    {
+        public override T? Read(ref NBMP.MessagePackReader reader, NBMP.SerializationContext context)
+        {
+            throw new Exception();
+        }
+
+        public override void Write(ref NBMP.MessagePackWriter writer, in T? value, NBMP.SerializationContext context)
         {
             throw new Exception();
         }

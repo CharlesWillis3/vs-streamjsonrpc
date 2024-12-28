@@ -26,6 +26,7 @@ namespace StreamJsonRpc.Protocol;
 [KnownSubType<JsonRpcError>(3)]
 #endif
 [MessagePackConverter(typeof(NerdbankMessagePackFormatter.JsonRpcMessageConverter))]
+[GenerateShape]
 public abstract partial class JsonRpcMessage
 {
     /// <summary>

@@ -9,6 +9,8 @@ using System.Net;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Microsoft.VisualStudio.Threading;
+using Nerdbank.MessagePack;
+using PolyType;
 using static System.FormattableString;
 using STJ = System.Text.Json.Serialization;
 
@@ -17,7 +19,7 @@ namespace StreamJsonRpc.Reflection;
 /// <summary>
 /// Tracks objects that get marshaled using the general marshaling protocol.
 /// </summary>
-internal class MessageFormatterRpcMarshaledContextTracker
+internal partial class MessageFormatterRpcMarshaledContextTracker
 {
     private static readonly IReadOnlyCollection<(Type ImplicitlyMarshaledType, JsonRpcProxyOptions ProxyOptions, JsonRpcTargetOptions TargetOptions, RpcMarshalableAttribute Attribute)> ImplicitlyMarshaledTypes = new (Type, JsonRpcProxyOptions, JsonRpcTargetOptions, RpcMarshalableAttribute)[]
     {

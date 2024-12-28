@@ -23,6 +23,7 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
             b.RegisterPipeReaderType<PipeReader>();
             b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
+            b.RegisterDuplexPipeType<IDuplexPipe>();
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });
 
@@ -36,6 +37,7 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
             b.RegisterPipeReaderType<PipeReader>();
             b.RegisterPipeWriterType<PipeWriter>();
             b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
+            b.RegisterDuplexPipeType<IDuplexPipe>();
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });
 

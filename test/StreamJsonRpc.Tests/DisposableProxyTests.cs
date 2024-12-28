@@ -110,7 +110,7 @@ public abstract class DisposableProxyTests : TestBase
         await this.AssertWeakReferenceGetsCollectedAsync(weakRefs.Target);
     }
 
-    [Fact]
+    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
     public async Task DisposableReturnValue_Null()
     {
         IDisposable? proxyDisposable = await this.client.GetDisposableAsync(returnNull: true);

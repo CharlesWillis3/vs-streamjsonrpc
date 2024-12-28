@@ -416,6 +416,7 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
             b.RegisterStreamType<Nerdbank.FullDuplexStream>();
             b.RegisterProgressType<Progress<UnionBaseClass>, UnionBaseClass>();
             b.RegisterProgressType<Progress<UnionDerivedClass>, UnionDerivedClass>();
+            b.RegisterProgressType<ProgressWithCompletion<int>, int>();
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }

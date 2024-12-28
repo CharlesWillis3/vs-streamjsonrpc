@@ -30,6 +30,8 @@ namespace StreamJsonRpc;
 /// The MessagePack implementation used here comes from https://github.com/AArnott/Nerdbank.MessagePack.
 /// </remarks>
 [SuppressMessage("ApiDesign", "RS0016:Add public types and members to the declared API", Justification = "TODO: Suppressed for Development")]
+[GenerateShape<MessageFormatterRpcMarshaledContextTracker.MarshalToken>]
+[GenerateShape<TraceParent>]
 public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessageFormatter, IJsonRpcFormatterTracingCallbacks, IJsonRpcMessageFactory
 {
     /// <summary>
@@ -95,6 +97,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
         // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
         userSerializer.RegisterConverter(EventArgsConverter.Instance);
+        userSerializer.RegisterConverter(new TraceParentConverter());
 
         this.userDataProfile = new Profile(
             Profile.ProfileSource.External,
@@ -232,6 +235,26 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         {
             this.serializationToStringHelper.Deactivate();
         }
+    }
+
+    internal static MessagePackConverter<T> GetRpcMarshalableConverter<T>()
+        where T : class
+    {
+        if (MessageFormatterRpcMarshaledContextTracker.TryGetMarshalOptionsForType(
+            typeof(T),
+            out JsonRpcProxyOptions? proxyOptions,
+            out JsonRpcTargetOptions? targetOptions,
+            out RpcMarshalableAttribute? attribute))
+        {
+            return (RpcMarshalableConverter<T>)Activator.CreateInstance(
+                typeof(RpcMarshalableConverter<>).MakeGenericType(typeof(T)),
+                proxyOptions,
+                targetOptions,
+                attribute)!;
+        }
+
+        // TODO: Improve Exception message.
+        throw new NotSupportedException($"Type '{typeof(T).FullName}' is not supported for RPC Marshaling.");
     }
 
     /// <summary>
@@ -391,8 +414,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Converts JSON-RPC messages to and from MessagePack format.
     /// </summary>
-    [GenerateShape<JsonRpcMessage>]
-    internal partial class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
+    internal class JsonRpcMessageConverter : MessagePackConverter<JsonRpcMessage>
     {
         /// <summary>
         /// Reads a JSON-RPC message from the specified MessagePack reader.
@@ -480,7 +502,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Converts a JSON-RPC request message to and from MessagePack format.
     /// </summary>
-    internal partial class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
+    internal class JsonRpcRequestConverter : MessagePackConverter<Protocol.JsonRpcRequest>
     {
         /// <summary>
         /// Reads a JSON-RPC request message from the specified MessagePack reader.
@@ -678,8 +700,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             if (value.TraceParent?.Length > 0)
             {
                 writer.Write(TraceParentPropertyName);
-                context.GetConverter<TraceParent>(context.TypeShapeProvider)
-                    .Write(ref writer, new TraceParent(value.TraceParent), context);
+                formatter.rpcProfile.Serialize(ref writer, new TraceParent(value.TraceParent));
 
                 if (value.TraceState?.Length > 0)
                 {
@@ -770,7 +791,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Converts a JSON-RPC result message to and from MessagePack format.
     /// </summary>
-    internal partial class JsonRpcResultConverter : MessagePackConverter<Protocol.JsonRpcResult>
+    internal class JsonRpcResultConverter : MessagePackConverter<Protocol.JsonRpcResult>
     {
         /// <summary>
         /// Reads a JSON-RPC result message from the specified MessagePack reader.
@@ -878,7 +899,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Converts a JSON-RPC error message to and from MessagePack format.
     /// </summary>
-    internal partial class JsonRpcErrorConverter : MessagePackConverter<Protocol.JsonRpcError>
+    internal class JsonRpcErrorConverter : MessagePackConverter<Protocol.JsonRpcError>
     {
         /// <summary>
         /// Reads a JSON-RPC error message from the specified MessagePack reader.
@@ -971,7 +992,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// <summary>
     /// Converts a JSON-RPC error detail to and from MessagePack format.
     /// </summary>
-    internal partial class JsonRpcErrorDetailConverter : MessagePackConverter<Protocol.JsonRpcError.ErrorDetail>
+    internal class JsonRpcErrorDetailConverter : MessagePackConverter<Protocol.JsonRpcError.ErrorDetail>
     {
         private static readonly MessagePackString CodePropertyName = new("code");
         private static readonly MessagePackString MessagePropertyName = new("message");
@@ -1700,10 +1721,16 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
             context.DepthStep();
 
-            MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcProfile
-                .Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(
-                    ref reader,
-                    context.CancellationToken);
+            // This converter instance is registered with the user data profile,
+            // however the shape of MarshalToken is defined by the StreamJsonRpc source generator provider.
+            MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = context
+                .GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)
+                .Read(ref reader, context);
+
+            ////MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcProfile
+            ////    .Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(
+            ////        ref reader,
+            ////        context.CancellationToken);
 
             return token.HasValue ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
         }
@@ -1722,7 +1749,11 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             else
             {
                 MessageFormatterRpcMarshaledContextTracker.MarshalToken token = formatter.RpcMarshaledContextTracker.GetToken(value, targetOptions, typeof(T), rpcMarshalableAttribute);
-                formatter.rpcProfile.Serialize(ref writer, token, context.CancellationToken);
+                ////formatter.rpcProfile.Serialize(ref writer, token, context.CancellationToken);
+                // This converter instance is registered with the user data profile,
+                // however the shape of MarshalToken is defined by the StreamJsonRpc source generator provider.
+                context.GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)
+                    .Write(ref writer, token, context);
             }
         }
 

@@ -20,6 +20,7 @@ public class DisposableProxyNerdbankMessagePackTests : DisposableProxyTests
         {
             b.RegisterStreamType<Nerdbank.FullDuplexStream>();
             b.RegisterDuplexPipeType<IDuplexPipe>();
+            b.RegisterRpcMarshalableType<IDisposable>();
             b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });

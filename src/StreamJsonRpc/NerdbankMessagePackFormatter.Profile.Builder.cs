@@ -153,24 +153,8 @@ public partial class NerdbankMessagePackFormatter
             public void RegisterRpcMarshalableType<T>()
                 where T : class
             {
-                if (MessageFormatterRpcMarshaledContextTracker.TryGetMarshalOptionsForType(
-                    typeof(T),
-                    out JsonRpcProxyOptions? proxyOptions,
-                    out JsonRpcTargetOptions? targetOptions,
-                    out RpcMarshalableAttribute? attribute))
-                {
-                    var converter = (RpcMarshalableConverter<T>)Activator.CreateInstance(
-                        typeof(RpcMarshalableConverter<>).MakeGenericType(typeof(T)),
-                        proxyOptions,
-                        targetOptions,
-                        attribute)!;
-
-                    this.baseProfile.Serializer.RegisterConverter(converter);
-                    return;
-                }
-
-                // TODO: Throw?
-                throw new NotSupportedException();
+                MessagePackConverter<T> converter = GetRpcMarshalableConverter<T>();
+                this.baseProfile.Serializer.RegisterConverter(converter);
             }
 
             /// <summary>
