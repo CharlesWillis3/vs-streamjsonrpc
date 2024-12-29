@@ -73,7 +73,6 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         };
 
         serializer.RegisterConverter(RequestIdConverter.Instance);
-        serializer.RegisterConverter(new TraceParentConverter());
 
         this.rpcProfile = new Profile(
             Profile.ProfileSource.Internal,
@@ -97,7 +96,14 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
         // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
         userSerializer.RegisterConverter(EventArgsConverter.Instance);
-        userSerializer.RegisterConverter(new TraceParentConverter());
+
+        // Common exotic types that we want to support.
+        userSerializer.RegisterConverter(GetRpcMarshalableConverter<IDisposable>());
+        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<PipeReader>());
+        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<PipeWriter>());
+        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<Stream>());
+        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<IDuplexPipe>());
+        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<Exception>());
 
         this.userDataProfile = new Profile(
             Profile.ProfileSource.External,
@@ -1596,7 +1602,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         public static MessagePackConverter<T> GetConverter<T>()
         {
             MessagePackConverter<T>? formatter = null;
-            if (typeof(Exception).IsAssignableFrom(typeof(T)) && typeof(T).GetCustomAttribute<SerializableAttribute>() is object)
+            if (typeof(Exception).IsAssignableFrom(typeof(T)) && typeof(T).GetCustomAttribute<SerializableAttribute>() is not null)
             {
                 formatter = (MessagePackConverter<T>)Activator.CreateInstance(typeof(ExceptionConverter<>).MakeGenericType(typeof(T)))!;
             }
@@ -1605,10 +1611,8 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             return formatter ?? throw new NotSupportedException();
         }
 
-#pragma warning disable CA1812
         private partial class ExceptionConverter<T> : MessagePackConverter<T>
             where T : Exception
-#pragma warning restore CA1812
         {
             public override T? Read(ref MessagePackReader reader, SerializationContext context)
             {
@@ -1727,12 +1731,9 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                 .GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)
                 .Read(ref reader, context);
 
-            ////MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = formatter.rpcProfile
-            ////    .Deserialize<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>(
-            ////        ref reader,
-            ////        context.CancellationToken);
-
-            return token.HasValue ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions) : null;
+            return token.HasValue
+                ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions)
+                : null;
         }
 
         [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to rpc context")]
@@ -1749,7 +1750,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             else
             {
                 MessageFormatterRpcMarshaledContextTracker.MarshalToken token = formatter.RpcMarshaledContextTracker.GetToken(value, targetOptions, typeof(T), rpcMarshalableAttribute);
-                ////formatter.rpcProfile.Serialize(ref writer, token, context.CancellationToken);
+
                 // This converter instance is registered with the user data profile,
                 // however the shape of MarshalToken is defined by the StreamJsonRpc source generator provider.
                 context.GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)

@@ -23,15 +23,15 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
 
         static void ConfigureContext(NerdbankMessagePackFormatter.Profile.Builder profileBuilder)
         {
-            profileBuilder.RegisterAsyncEnumerableType<IAsyncEnumerable<int>, int>();
-            profileBuilder.RegisterAsyncEnumerableType<IAsyncEnumerable<string>, string>();
-            profileBuilder.RegisterRpcMarshalableType<IDisposable>();
+            profileBuilder.RegisterAsyncEnumerableType<int>();
+            profileBuilder.RegisterAsyncEnumerableType<string>();
             profileBuilder.AddTypeShapeProvider(AsyncEnumerableWitness.ShapeProvider);
             profileBuilder.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }
     }
 }
 
+[GenerateShape<IReadOnlyList<int>>]
 [GenerateShape<AsyncEnumerableJsonTests.CompoundEnumerableResult>]
 #pragma warning disable SA1402 // File may only contain a single type
 public partial class AsyncEnumerableWitness;

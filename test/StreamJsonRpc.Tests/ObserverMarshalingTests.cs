@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft;
 using Microsoft.VisualStudio.Threading;
+using Nerdbank.MessagePack;
 using Nerdbank.Streams;
 using StreamJsonRpc;
 using Xunit;

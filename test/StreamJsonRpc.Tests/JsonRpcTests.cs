@@ -14,7 +14,7 @@ using PolyType;
 using JsonNET = Newtonsoft.Json;
 using STJ = System.Text.Json.Serialization;
 
-public abstract class JsonRpcTests : TestBase
+public abstract partial class JsonRpcTests : TestBase
 {
 #pragma warning disable SA1310 // Field names should not contain underscore
     protected const int COR_E_UNAUTHORIZEDACCESS = unchecked((int)0x80070005);
@@ -3907,10 +3907,12 @@ public abstract class JsonRpcTests : TestBase
     }
 
     [DataContract]
-    public class ParamsObjectWithCustomNames
+    [GenerateShape]
+    public partial class ParamsObjectWithCustomNames
     {
         [DataMember(Name = "argument")]
         [STJ.JsonPropertyName("argument")]
+        [PropertyShape(Name = "argument")]
         public string? TheArgument { get; set; }
     }
 
@@ -3967,7 +3969,8 @@ public abstract class JsonRpcTests : TestBase
     }
 
     [DataContract]
-    public class Foo
+    [GenerateShape]
+    public partial class Foo
     {
         [DataMember(Order = 0, IsRequired = true)]
         [STJ.JsonRequired, STJ.JsonPropertyOrder(0)]
@@ -3980,7 +3983,8 @@ public abstract class JsonRpcTests : TestBase
         public int Bazz { get; set; }
     }
 
-    public class CustomSerializedType
+    [GenerateShape]
+    public partial class CustomSerializedType
     {
         // Ignore this so default serializers will drop it, proving that custom serializers were used if the value propagates.
         [JsonNET.JsonIgnore]

@@ -408,14 +408,13 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
 
         static void Configure(NerdbankMessagePackFormatter.Profile.Builder b)
         {
-            b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionBaseClass>, UnionBaseClass>();
-            b.RegisterAsyncEnumerableType<IAsyncEnumerable<UnionDerivedClass>, UnionDerivedClass>();
+            b.RegisterAsyncEnumerableType<UnionBaseClass>();
+            b.RegisterAsyncEnumerableType<UnionDerivedClass>();
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
-            b.RegisterConverter(new CustomExtensionConverter());
-            b.RegisterStreamType<Nerdbank.FullDuplexStream>();
-            b.RegisterProgressType<Progress<UnionBaseClass>, UnionBaseClass>();
-            b.RegisterProgressType<Progress<UnionDerivedClass>, UnionDerivedClass>();
+            b.RegisterProgressType<UnionBaseClass>();
+            b.RegisterProgressType<UnionDerivedClass>();
+            b.RegisterProgressType<CustomSerializedType>();
             b.RegisterProgressType<ProgressWithCompletion<int>, int>();
             b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
@@ -440,6 +439,7 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
     }
 
     [GenerateShape]
+    [MessagePackConverter(typeof(CustomExtensionConverter))]
     internal partial class CustomExtensionType
     {
     }

@@ -200,7 +200,7 @@ public abstract partial class TestBase : IDisposable
     }
 
     [GenerateShape<FormatterTestBase<NerdbankMessagePackFormatter>.CustomType>]
-    internal partial class Witness;
+    internal partial class TestBaseWitness;
 
 #pragma warning disable SYSLIB0050 // Type or member is obsolete
     private class RoundtripFormatter : IFormatterConverter

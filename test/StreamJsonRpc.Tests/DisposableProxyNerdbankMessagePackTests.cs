@@ -3,6 +3,7 @@
 
 using System.IO.Pipelines;
 using Nerdbank.MessagePack;
+using PolyType;
 
 public class DisposableProxyNerdbankMessagePackTests : DisposableProxyTests
 {
@@ -18,13 +19,17 @@ public class DisposableProxyNerdbankMessagePackTests : DisposableProxyTests
         NerdbankMessagePackFormatter formatter = new();
         formatter.SetFormatterProfile(b =>
         {
-            b.RegisterStreamType<Nerdbank.FullDuplexStream>();
-            b.RegisterDuplexPipeType<IDuplexPipe>();
-            b.RegisterRpcMarshalableType<IDisposable>();
-            b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.AddTypeShapeProvider(DisposableProxyWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });
 
         return formatter;
     }
 }
+
+[GenerateShape<DisposableProxyTests.ProxyContainer>]
+[GenerateShape<DisposableProxyTests.DataContainer>]
+[GenerateShape<DisposableProxyTests.Data>]
+#pragma warning disable SA1402 // File may only contain a single type
+public partial class DisposableProxyWitness;
+#pragma warning restore SA1402 // File may only contain a single type

@@ -38,7 +38,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Adds a type shape provider to the context.
+            /// Adds a type shape provider to the profile.
             /// </summary>
             /// <param name="provider">The type shape provider to add.</param>
             public void AddTypeShapeProvider(ITypeShapeProvider provider)
@@ -48,7 +48,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers an async enumerable type with the context.
+            /// Registers an async enumerable type with the profile.
             /// </summary>
             /// <typeparam name="TEnumerable">The type of the async enumerable.</typeparam>
             /// <typeparam name="TElement">The type of the elements in the async enumerable.</typeparam>
@@ -60,7 +60,17 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a converter with the context.
+            /// Registers an async enumerable type with the profile.
+            /// </summary>
+            /// <typeparam name="TElement">The type of the elements in the async enumerable.</typeparam>
+            public void RegisterAsyncEnumerableType<TElement>()
+            {
+                MessagePackConverter<IAsyncEnumerable<TElement>> converter = AsyncEnumerableConverterResolver.GetConverter<IAsyncEnumerable<TElement>>();
+                this.baseProfile.Serializer.RegisterConverter(converter);
+            }
+
+            /// <summary>
+            /// Registers a converter with the profile.
             /// </summary>
             /// <typeparam name="T">The type the converter handles.</typeparam>
             /// <param name="converter">The converter to register.</param>
@@ -70,7 +80,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers known subtypes for a base type with the context.
+            /// Registers known subtypes for a base type with the profile.
             /// </summary>
             /// <typeparam name="TBase">The base type.</typeparam>
             /// <param name="mapping">The mapping of known subtypes.</param>
@@ -80,7 +90,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a progress type with the context.
+            /// Registers a progress type with the profile.
             /// </summary>
             /// <typeparam name="TProgress">The type of the progress.</typeparam>
             /// <typeparam name="TReport">The type of the report.</typeparam>
@@ -92,7 +102,17 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a duplex pipe type with the context.
+            /// Registers a progress type with the profile.
+            /// </summary>
+            /// <typeparam name="TReport">The type of the report.</typeparam>
+            public void RegisterProgressType<TReport>()
+            {
+                MessagePackConverter<IProgress<TReport>> converter = ProgressConverterResolver.GetConverter<IProgress<TReport>>();
+                this.baseProfile.Serializer.RegisterConverter(converter);
+            }
+
+            /// <summary>
+            /// Registers a duplex pipe type with the profile.
             /// </summary>
             /// <typeparam name="TPipe">The type of the duplex pipe.</typeparam>
             public void RegisterDuplexPipeType<TPipe>()
@@ -103,7 +123,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a pipe reader type with the context.
+            /// Registers a pipe reader type with the profile.
             /// </summary>
             /// <typeparam name="TReader">The type of the pipe reader.</typeparam>
             public void RegisterPipeReaderType<TReader>()
@@ -114,7 +134,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a pipe writer type with the context.
+            /// Registers a pipe writer type with the profile.
             /// </summary>
             /// <typeparam name="TWriter">The type of the pipe writer.</typeparam>
             public void RegisterPipeWriterType<TWriter>()
@@ -125,7 +145,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a stream type with the context.
+            /// Registers a stream type with the profile.
             /// </summary>
             /// <typeparam name="TStream">The type of the stream.</typeparam>
             public void RegisterStreamType<TStream>()
@@ -136,7 +156,7 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers an exception type with the context.
+            /// Registers an exception type with the profile.
             /// </summary>
             /// <typeparam name="TException">The type of the exception.</typeparam>
             public void RegisterExceptionType<TException>()
@@ -147,13 +167,32 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers an RPC marshalable type with the context.
+            /// Registers an RPC marshalable type with the profile.
             /// </summary>
             /// <typeparam name="T">The type to register.</typeparam>
             public void RegisterRpcMarshalableType<T>()
                 where T : class
             {
                 MessagePackConverter<T> converter = GetRpcMarshalableConverter<T>();
+                this.baseProfile.Serializer.RegisterConverter(converter);
+            }
+
+            /// <summary>
+            /// Registers an observer type with the profile.
+            /// </summary>
+            /// <remarks>
+            ///     <para>
+            ///         To register <see cref="IObserver{T}"/> with the profile,
+            ///         call this method with the type parameter <typeparamref name="T"/>.
+            ///     </para>
+            ///     <code>
+            ///         RegisterObserver&lt;int&gt;();
+            ///     </code>
+            /// </remarks>
+            /// <typeparam name="T">The type of the observer.</typeparam>
+            public void RegisterObserver<T>()
+            {
+                MessagePackConverter<IObserver<T>> converter = GetRpcMarshalableConverter<IObserver<T>>();
                 this.baseProfile.Serializer.RegisterConverter(converter);
             }
 

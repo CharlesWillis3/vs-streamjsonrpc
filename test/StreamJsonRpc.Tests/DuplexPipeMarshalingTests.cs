@@ -8,6 +8,7 @@ using System.Runtime.Serialization;
 using System.Text;
 using Microsoft.VisualStudio.Threading;
 using Nerdbank.Streams;
+using PolyType;
 using STJ = System.Text.Json.Serialization;
 
 public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
@@ -761,6 +762,21 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await serverStreamDisposal.WaitAsync(this.TimeoutToken);
     }
 
+    [DataContract]
+    public class StreamContainingClass
+    {
+        [DataMember]
+        private Stream innerStream;
+
+        public StreamContainingClass(Stream innerStream)
+        {
+            this.innerStream = innerStream;
+        }
+
+        [STJ.JsonPropertyName("innerStream")]
+        public Stream InnerStream => this.innerStream;
+    }
+
 #pragma warning disable CA1801 // Review unused parameters
     protected class ServerWithOverloads
     {
@@ -779,7 +795,9 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         public void OverloadedMethod(bool foo, int value, string[] values) => Assert.NotNull(values);
     }
 
-    protected class Server
+#pragma warning disable SA1202 // Elements should be ordered by access
+    public class Server
+#pragma warning restore SA1202 // Elements should be ordered by access
     {
         internal Task? ChatLaterTask { get; private set; }
 
@@ -987,7 +1005,9 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         public IDuplexPipe? MethodThatReturnsIDuplexPipe() => null;
     }
 
-    protected class OneWayWrapperStream : Stream
+#pragma warning disable SA1202 // Elements should be ordered by access
+    public class OneWayWrapperStream : Stream
+#pragma warning restore SA1202 // Elements should be ordered by access
     {
         private readonly Stream innerStream;
         private readonly bool canRead;
@@ -1014,8 +1034,10 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
 
         public override bool CanWrite => this.canWrite && this.innerStream.CanWrite;
 
+        [PropertyShape(Ignore = true)]
         public override long Length => throw new NotSupportedException();
 
+        [PropertyShape(Ignore = true)]
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
         public override void Flush()
@@ -1091,20 +1113,5 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
 
             base.Dispose(disposing);
         }
-    }
-
-    [DataContract]
-    protected class StreamContainingClass
-    {
-        [DataMember]
-        private Stream innerStream;
-
-        public StreamContainingClass(Stream innerStream)
-        {
-            this.innerStream = innerStream;
-        }
-
-        [STJ.JsonPropertyName("innerStream")]
-        public Stream InnerStream => this.innerStream;
     }
 }
