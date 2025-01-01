@@ -44,10 +44,11 @@ public static class NerdbankMessagePackFormatterProfileExtensions
             return;
         }
 
+        PolyType.Abstractions.ITypeShape<T> shape = profile.ShapeProviderResolver.ResolveShape<T>();
         profile.Serializer.Serialize<T>(
             ref writer,
             value,
-            profile.ShapeProviderResolver.ResolveShape<T>(),
+            shape,
             cancellationToken);
     }
 
@@ -69,9 +70,10 @@ public static class NerdbankMessagePackFormatterProfileExtensions
 
     internal static T? Deserialize<T>(this Profile profile, ref MessagePackReader reader, CancellationToken cancellationToken = default)
     {
+        PolyType.ITypeShapeProvider provider = profile.ShapeProviderResolver.ResolveShapeProvider<T>();
         return profile.Serializer.Deserialize<T>(
             ref reader,
-            profile.ShapeProviderResolver.ResolveShapeProvider<T>(),
+            provider,
             cancellationToken);
     }
 
@@ -83,9 +85,10 @@ public static class NerdbankMessagePackFormatterProfileExtensions
 
     internal static object? DeserializeObject(this Profile profile, ref MessagePackReader reader, Type objectType, CancellationToken cancellationToken = default)
     {
+        PolyType.Abstractions.ITypeShape shape = profile.ShapeProviderResolver.ResolveShape(objectType);
         return profile.Serializer.DeserializeObject(
             ref reader,
-            profile.ShapeProviderResolver.ResolveShape(objectType),
+            shape,
             cancellationToken);
     }
 
@@ -97,10 +100,11 @@ public static class NerdbankMessagePackFormatterProfileExtensions
             return;
         }
 
+        PolyType.Abstractions.ITypeShape shape = profile.ShapeProviderResolver.ResolveShape(objectType);
         profile.Serializer.SerializeObject(
             ref writer,
             value,
-            profile.ShapeProviderResolver.ResolveShape(objectType),
+            shape,
             cancellationToken);
     }
 }

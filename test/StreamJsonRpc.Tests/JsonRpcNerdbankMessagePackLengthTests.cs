@@ -408,10 +408,10 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
 
         static void Configure(NerdbankMessagePackFormatter.Profile.Builder b)
         {
-            b.RegisterAsyncEnumerableType<UnionBaseClass>();
-            b.RegisterAsyncEnumerableType<UnionDerivedClass>();
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
+            b.RegisterAsyncEnumerableType<UnionBaseClass>();
+            b.RegisterAsyncEnumerableType<UnionDerivedClass>();
             b.RegisterProgressType<UnionBaseClass>();
             b.RegisterProgressType<UnionDerivedClass>();
             b.RegisterProgressType<CustomSerializedType>();

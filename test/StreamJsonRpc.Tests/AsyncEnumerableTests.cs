@@ -277,7 +277,11 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         }
         else
         {
-            await this.clientRpc.InvokeWithCancellationAsync(nameof(Server.PassInNumbersAsync), new object[] { Generator(this.TimeoutToken) }, this.TimeoutToken);
+            await this.clientRpc.InvokeWithCancellationAsync(
+                nameof(Server.PassInNumbersAsync),
+                [Generator(this.TimeoutToken)],
+                [typeof(IAsyncEnumerable<int>)],
+                this.TimeoutToken);
         }
     }
 
@@ -448,8 +452,14 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         // But for a notification there's no guarantee the server handles the message and no way to get an error back,
         // so it simply should not be allowed since the risk of memory leak is too high.
         var numbers = new int[] { 1, 2, 3 }.AsAsyncEnumerable();
-        await Assert.ThrowsAnyAsync<Exception>(() => this.clientRpc.NotifyAsync(nameof(Server.PassInNumbersAsync), new object?[] { numbers }));
-        await Assert.ThrowsAnyAsync<Exception>(() => this.clientRpc.NotifyAsync(nameof(Server.PassInNumbersAsync), new object?[] { new { e = numbers } }));
+        await Assert.ThrowsAnyAsync<Exception>(() => this.clientRpc.NotifyAsync(
+            nameof(Server.PassInNumbersAsync),
+            [numbers],
+            [typeof(IAsyncEnumerable<int>)]));
+        await Assert.ThrowsAnyAsync<Exception>(() => this.clientRpc.NotifyAsync(
+            nameof(Server.PassInNumbersAsync),
+            new object?[] { new { e = numbers } },
+            [typeof(IAsyncEnumerable<int>)]));
     }
 
     [SkippableFact]
@@ -544,7 +554,7 @@ public abstract class AsyncEnumerableTests : TestBase, IAsyncLifetime
         Assert.Equal(Server.FailByDesignExceptionMessage, ex.Message);
     }
 
-    [Fact(Timeout = 2 * 1000)] // TODO: Temporary for development
+    [Fact]
     public async Task EnumerableIdDisposal()
     {
         // This test is specially arranged to create two RPC calls going opposite directions, with the same request ID.

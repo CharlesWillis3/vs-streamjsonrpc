@@ -2,8 +2,9 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Nerdbank.MessagePack;
+using PolyType;
 
-public class MarshalableProxyNerdbankMessagePackTests : MarshalableProxyTests
+public partial class MarshalableProxyNerdbankMessagePackTests : MarshalableProxyTests
 {
     public MarshalableProxyNerdbankMessagePackTests(ITestOutputHelper logger)
         : base(logger)
@@ -21,8 +22,6 @@ public class MarshalableProxyNerdbankMessagePackTests : MarshalableProxyTests
             b.RegisterRpcMarshalableType<IMarshalable>();
             b.RegisterRpcMarshalableType<IMarshalableWithCallScopedLifetime>();
             b.RegisterRpcMarshalableType<INonDisposableMarshalable>();
-            b.RegisterRpcMarshalableType<IMarshalableWithProperties>();
-            b.RegisterRpcMarshalableType<IMarshalableWithEvents>();
             b.RegisterRpcMarshalableType<IMarshalableSubType1>();
             b.RegisterRpcMarshalableType<IMarshalableSubType2>();
             b.RegisterRpcMarshalableType<IMarshalableSubType1Extended>();
@@ -32,10 +31,14 @@ public class MarshalableProxyNerdbankMessagePackTests : MarshalableProxyTests
             b.RegisterRpcMarshalableType<IMarshalableSubTypeWithIntermediateInterface2>();
             b.RegisterRpcMarshalableType<IMarshalableWithOptionalInterfaces2>();
             b.RegisterRpcMarshalableType<IMarshalableSubType2Extended>();
-            b.AddTypeShapeProvider(PolyType.SourceGenerator.ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.RegisterRpcMarshalableType<IGenericMarshalable<int>>();
+            b.AddTypeShapeProvider(MarshalableProxyWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });
 
         return formatter;
     }
+
+    [GenerateShape<Data>]
+    public partial class MarshalableProxyWitness;
 }

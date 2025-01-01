@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using PolyType;
+using static AsyncEnumerableTests;
 
 public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
 {
@@ -32,7 +33,9 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
 }
 
 [GenerateShape<IReadOnlyList<int>>]
-[GenerateShape<AsyncEnumerableJsonTests.CompoundEnumerableResult>]
+[GenerateShape<IReadOnlyList<string>>]
+[GenerateShape<IReadOnlyList<CompoundEnumerableResult>>]
+[GenerateShape<CompoundEnumerableResult>]
 #pragma warning disable SA1402 // File may only contain a single type
 public partial class AsyncEnumerableWitness;
 #pragma warning restore SA1402 // File may only contain a single type

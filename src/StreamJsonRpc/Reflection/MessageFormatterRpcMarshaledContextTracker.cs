@@ -398,7 +398,7 @@ internal partial class MessageFormatterRpcMarshaledContextTracker
     private static void ValidateMarshalableInterface(Type type, RpcMarshalableAttribute attribute)
     {
         // We only require marshalable interfaces to derive from IDisposable when they are not call-scoped.
-        if (!attribute.CallScopedLifetime && !typeof(IDisposable).IsAssignableFrom(type))
+        if (attribute.CallScopedLifetime && !typeof(IDisposable).IsAssignableFrom(type))
         {
             throw new NotSupportedException(string.Format(CultureInfo.CurrentCulture, Resources.MarshalableInterfaceNotDisposable, type.FullName));
         }

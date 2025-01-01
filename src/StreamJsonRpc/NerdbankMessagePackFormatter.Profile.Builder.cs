@@ -62,11 +62,18 @@ public partial class NerdbankMessagePackFormatter
             /// <summary>
             /// Registers an async enumerable type with the profile.
             /// </summary>
+            /// <remarks>
+            ///     To avoid the cost of reflection, ensure <see cref="IReadOnlyList{T}"/> is
+            ///     registered with your type shape provider.
+            /// </remarks>
             /// <typeparam name="TElement">The type of the elements in the async enumerable.</typeparam>
             public void RegisterAsyncEnumerableType<TElement>()
             {
                 MessagePackConverter<IAsyncEnumerable<TElement>> converter = AsyncEnumerableConverterResolver.GetConverter<IAsyncEnumerable<TElement>>();
                 this.baseProfile.Serializer.RegisterConverter(converter);
+
+                MessagePackConverter<MessageFormatterEnumerableTracker.EnumeratorResults<TElement>> resultConverter = EnumeratorResultsConverterResolver.GetConverter<TElement>();
+                this.baseProfile.Serializer.RegisterConverter(resultConverter);
             }
 
             /// <summary>
