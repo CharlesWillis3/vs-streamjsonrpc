@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
-using System.IO.Pipelines;
 using Nerdbank.MessagePack;
 using PolyType;
 using StreamJsonRpc.Reflection;
@@ -43,7 +42,7 @@ public partial class NerdbankMessagePackFormatter
             /// <param name="provider">The type shape provider to add.</param>
             public void AddTypeShapeProvider(ITypeShapeProvider provider)
             {
-                this.typeShapeProvidersBuilder ??= ImmutableArray.CreateBuilder<ITypeShapeProvider>();
+                this.typeShapeProvidersBuilder ??= ImmutableArray.CreateBuilder<ITypeShapeProvider>(initialCapacity: 3);
                 this.typeShapeProvidersBuilder.Add(provider);
             }
 
@@ -57,6 +56,9 @@ public partial class NerdbankMessagePackFormatter
             {
                 MessagePackConverter<TEnumerable> converter = AsyncEnumerableConverterResolver.GetConverter<TEnumerable>();
                 this.baseProfile.Serializer.RegisterConverter(converter);
+
+                MessagePackConverter<MessageFormatterEnumerableTracker.EnumeratorResults<TElement>> resultConverter = EnumeratorResultsConverterResolver.GetConverter<TElement>();
+                this.baseProfile.Serializer.RegisterConverter(resultConverter);
             }
 
             /// <summary>
@@ -119,50 +121,6 @@ public partial class NerdbankMessagePackFormatter
             }
 
             /// <summary>
-            /// Registers a duplex pipe type with the profile.
-            /// </summary>
-            /// <typeparam name="TPipe">The type of the duplex pipe.</typeparam>
-            public void RegisterDuplexPipeType<TPipe>()
-                where TPipe : IDuplexPipe
-            {
-                MessagePackConverter<TPipe> converter = PipeConverterResolver.GetConverter<TPipe>();
-                this.baseProfile.Serializer.RegisterConverter(converter);
-            }
-
-            /// <summary>
-            /// Registers a pipe reader type with the profile.
-            /// </summary>
-            /// <typeparam name="TReader">The type of the pipe reader.</typeparam>
-            public void RegisterPipeReaderType<TReader>()
-                where TReader : PipeReader
-            {
-                MessagePackConverter<TReader> converter = PipeConverterResolver.GetConverter<TReader>();
-                this.baseProfile.Serializer.RegisterConverter(converter);
-            }
-
-            /// <summary>
-            /// Registers a pipe writer type with the profile.
-            /// </summary>
-            /// <typeparam name="TWriter">The type of the pipe writer.</typeparam>
-            public void RegisterPipeWriterType<TWriter>()
-                where TWriter : PipeWriter
-            {
-                MessagePackConverter<TWriter> converter = PipeConverterResolver.GetConverter<TWriter>();
-                this.baseProfile.Serializer.RegisterConverter(converter);
-            }
-
-            /// <summary>
-            /// Registers a stream type with the profile.
-            /// </summary>
-            /// <typeparam name="TStream">The type of the stream.</typeparam>
-            public void RegisterStreamType<TStream>()
-                where TStream : Stream
-            {
-                MessagePackConverter<TStream> converter = PipeConverterResolver.GetConverter<TStream>();
-                this.baseProfile.Serializer.RegisterConverter(converter);
-            }
-
-            /// <summary>
             /// Registers an exception type with the profile.
             /// </summary>
             /// <typeparam name="TException">The type of the exception.</typeparam>
@@ -214,10 +172,11 @@ public partial class NerdbankMessagePackFormatter
                     return this.baseProfile;
                 }
 
+                // ExoticTypeShapeProvider is always first and cannot be overridden.
                 return new Profile(
                     this.baseProfile.Source,
                     this.baseProfile.Serializer,
-                    this.typeShapeProvidersBuilder.ToImmutable());
+                    [ExoticTypeShapeProvider.Instance, .. this.typeShapeProvidersBuilder]);
             }
         }
     }

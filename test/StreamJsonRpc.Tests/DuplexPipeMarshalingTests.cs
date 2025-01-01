@@ -118,7 +118,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
             bytesReceived = await this.clientRpc.InvokeWithCancellationAsync<int>(
                 nameof(Server.AcceptReadablePipe),
                 [ExpectedFileName, pipes.Item2],
-                [typeof(string), typeof(IDuplexPipe)],
                 this.TimeoutToken);
         }
         else
@@ -146,7 +145,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
             await this.clientRpc.InvokeWithCancellationAsync(
                 nameof(Server.AcceptWritablePipe),
                 [pipes.Item2, bytesToReceive],
-                [typeof(IDuplexPipe), typeof(int)],
                 this.TimeoutToken);
         }
         else
@@ -186,7 +184,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         int bytesReceived = await this.clientRpc.InvokeWithCancellationAsync<int>(
             nameof(Server.AcceptPipeReader),
             [ExpectedFileName, pipe.Reader],
-            [typeof(string), typeof(PipeReader)],
             this.TimeoutToken);
 
         Assert.Equal(MemoryBuffer.Length, bytesReceived);
@@ -201,7 +198,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             nameof(Server.AcceptPipeWriter),
             [pipe.Writer, bytesToReceive],
-            [typeof(PipeWriter), typeof(int)],
             this.TimeoutToken);
 
         // Read all that the server wanted us to know, and verify it.
@@ -461,7 +457,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             serverUsesStream ? nameof(Server.TwoWayStreamAsArg) : nameof(Server.TwoWayPipeAsArg),
             [false, pipePair.Item2],
-            [typeof(bool), typeof(IDuplexPipe)],
             this.TimeoutToken);
         await twoWayCom.WithCancellation(this.TimeoutToken); // rethrow any exceptions.
 
@@ -483,7 +478,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             serverUsesStream ? nameof(Server.TwoWayStreamAsArg) : nameof(Server.TwoWayPipeAsArg),
             [false, streamPair.Item2],
-            [typeof(bool), typeof(Stream)],
             this.TimeoutToken);
         await twoWayCom.WithCancellation(this.TimeoutToken); // rethrow any exceptions.
 
@@ -497,7 +491,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             nameof(Server.AcceptPipeAndChatLater),
             [false, pipePair.Item2],
-            [typeof(bool), typeof(IDuplexPipe)],
             this.TimeoutToken);
 
         await WhenAllSucceedOrAnyFault(TwoWayTalkAsync(pipePair.Item1, writeOnOdd: true, this.TimeoutToken), this.server.ChatLaterTask!);
@@ -515,7 +508,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await Assert.ThrowsAsync<RemoteInvocationException>(() => this.clientRpc.InvokeWithCancellationAsync(
             nameof(Server.RejectCall),
             [pipePair.Item2],
-            [typeof(IDuplexPipe)],
             this.TimeoutToken));
 
         // Verify that the pipe is closed.
@@ -530,7 +522,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             nameof(Server.AcceptPipeAndChatLater),
             [false, pipePair.Item2],
-            [typeof(bool), typeof(IDuplexPipe)],
             this.TimeoutToken);
 
         this.clientRpc.Dispose();
@@ -554,7 +545,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             nameof(Server.TwoPipes),
             [pipePair1.Item2, pipePair2.Item2],
-            [typeof(IDuplexPipe), typeof(IDuplexPipe)],
             this.TimeoutToken);
         pipePair1.Item1.Output.Complete();
         pipePair2.Item1.Output.Complete();
@@ -635,7 +625,6 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         await this.clientRpc.InvokeWithCancellationAsync(
             nameof(ServerWithOverloads.OverloadedMethod),
             [false, pipePair.Item2, "hi"],
-            [typeof(bool), typeof(IDuplexPipe), typeof(string)],
             this.TimeoutToken);
         await twoWayCom.WithCancellation(this.TimeoutToken); // rethrow any exceptions.
 

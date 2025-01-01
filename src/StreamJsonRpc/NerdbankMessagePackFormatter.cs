@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Buffers;
+using System.Collections;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -18,6 +19,7 @@ using PolyType;
 using PolyType.Abstractions;
 using PolyType.ReflectionProvider;
 using PolyType.SourceGenerator;
+using PolyType.SourceGenModel;
 using StreamJsonRpc.Protocol;
 using StreamJsonRpc.Reflection;
 
@@ -32,6 +34,12 @@ namespace StreamJsonRpc;
 [SuppressMessage("ApiDesign", "RS0016:Add public types and members to the declared API", Justification = "TODO: Suppressed for Development")]
 [GenerateShape<MessageFormatterRpcMarshaledContextTracker.MarshalToken>]
 [GenerateShape<TraceParent>]
+[GenerateShape<IDictionary>]
+[GenerateShape<Exception>]
+[GenerateShape<RemoteInvocationException>]
+[GenerateShape<RemoteMethodNotFoundException>]
+[GenerateShape<RemoteRpcException>]
+[GenerateShape<RemoteSerializationException>]
 public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessageFormatter, IJsonRpcFormatterTracingCallbacks, IJsonRpcMessageFactory
 {
     /// <summary>
@@ -61,6 +69,12 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     /// </summary>
     public NerdbankMessagePackFormatter()
     {
+        KnownSubTypeMapping<Exception> exceptionSubtypeMap = new();
+        exceptionSubtypeMap.Add<RemoteInvocationException>(alias: 1, ShapeProvider);
+        exceptionSubtypeMap.Add<RemoteMethodNotFoundException>(alias: 2, ShapeProvider);
+        exceptionSubtypeMap.Add<RemoteRpcException>(alias: 3, ShapeProvider);
+        exceptionSubtypeMap.Add<RemoteSerializationException>(alias: 4, ShapeProvider);
+
         // Set up initial options for our own message types.
         MessagePackSerializer serializer = new()
         {
@@ -72,13 +86,22 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             },
         };
 
+        serializer.RegisterKnownSubTypes(exceptionSubtypeMap);
         serializer.RegisterConverter(RequestIdConverter.Instance);
         serializer.RegisterConverter(EventArgsConverter.Instance);
+        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<Exception>());
+        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteInvocationException>());
+        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteMethodNotFoundException>());
+        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteRpcException>());
+        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteSerializationException>());
 
         this.rpcProfile = new Profile(
             Profile.ProfileSource.Internal,
             serializer,
-            [ShapeProvider_StreamJsonRpc.Default]);
+            [
+                ExoticTypeShapeProvider.Instance,
+                ShapeProvider_StreamJsonRpc.Default
+            ]);
 
         // Create a serializer for user data.
         MessagePackSerializer userSerializer = new()
@@ -90,6 +113,8 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                 [SerializationContextExtensions.FormatterKey] = this,
             },
         };
+
+        userSerializer.RegisterKnownSubTypes(exceptionSubtypeMap);
 
         // Add our own resolvers to fill in specialized behavior if the user doesn't provide/override it by their own resolver.
         // We preset this one in user data because $/cancellation methods can carry RequestId values as arguments.
@@ -105,11 +130,18 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<Stream>());
         userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<IDuplexPipe>());
         userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<Exception>());
+        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteInvocationException>());
+        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteMethodNotFoundException>());
+        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteRpcException>());
+        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteSerializationException>());
 
         this.userDataProfile = new Profile(
             Profile.ProfileSource.External,
             userSerializer,
-            [ReflectionTypeShapeProvider.Default]);
+            [
+                ExoticTypeShapeProvider.Instance,
+                ReflectionTypeShapeProvider.Default
+            ]);
 
         this.ProfileBuilder = new Profile.Builder(this.userDataProfile);
     }
@@ -1643,7 +1675,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                     }
 
                     // TODO: Is this the right context?
-                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.rpcProfile));
+                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.userDataProfile));
                     int memberCount = reader.ReadMapHeader();
                     for (int i = 0; i < memberCount; i++)
                     {
@@ -1689,7 +1721,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                     }
 
                     // TODO: Is this the right profile?
-                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.rpcProfile));
+                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.userDataProfile));
                     ExceptionSerializationHelpers.Serialize(value, info);
                     writer.WriteMapHeader(info.GetSafeMemberCount());
                     foreach (SerializationEntry element in info.GetSafeMembers())
@@ -2236,6 +2268,60 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
                 // deserialization later when the buffer may be recycled on another thread.
                 this.MsgPackData = default;
             }
+        }
+    }
+
+    /// <summary>
+    /// Ensures certain exotic types are matched to the correct MessagePackConverter.
+    /// We rely on the caching in NerbdBank.MessagePackSerializer to ensure we don't create multiple instances of these shapes.
+    /// </summary>
+    private class ExoticTypeShapeProvider : ITypeShapeProvider
+    {
+        internal static readonly ExoticTypeShapeProvider Instance = new();
+
+        public ITypeShape? GetShape(Type type)
+        {
+            if (typeof(PipeReader).IsAssignableFrom(type))
+            {
+                return new SourceGenObjectTypeShape<PipeReader>()
+                {
+                    IsRecordType = false,
+                    IsTupleType = false,
+                    Provider = this,
+                };
+            }
+
+            if (typeof(PipeWriter).IsAssignableFrom(type))
+            {
+                return new SourceGenObjectTypeShape<PipeWriter>()
+                {
+                    IsRecordType = false,
+                    IsTupleType = false,
+                    Provider = this,
+                };
+            }
+
+            if (typeof(Stream).IsAssignableFrom(type))
+            {
+                return new SourceGenObjectTypeShape<Stream>()
+                {
+                    IsRecordType = false,
+                    IsTupleType = false,
+                    Provider = this,
+                };
+            }
+
+            if (typeof(IDuplexPipe).IsAssignableFrom(type))
+            {
+                return new SourceGenObjectTypeShape<IDuplexPipe>()
+                {
+                    IsRecordType = false,
+                    IsTupleType = false,
+                    Provider = this,
+                };
+            }
+
+            return null;
         }
     }
 }

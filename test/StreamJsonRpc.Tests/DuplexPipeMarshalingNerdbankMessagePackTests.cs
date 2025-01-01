@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.IO.Pipelines;
+using Nerdbank.MessagePack;
 using Nerdbank.Streams;
 using PolyType;
 
@@ -32,10 +33,6 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
 
         static void Configure(NerdbankMessagePackFormatter.Profile.Builder b)
         {
-            b.RegisterDuplexPipeType<MultiplexingStream.Channel>();
-            b.RegisterStreamType<OneWayWrapperStream>();
-            b.RegisterStreamType<MonitoringStream>();
-            b.RegisterStreamType<MemoryStream>();
             b.AddTypeShapeProvider(DuplexPipeWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }

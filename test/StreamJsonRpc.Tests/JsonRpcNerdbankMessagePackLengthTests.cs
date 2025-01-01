@@ -416,12 +416,17 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
             b.RegisterProgressType<UnionDerivedClass>();
             b.RegisterProgressType<CustomSerializedType>();
             b.RegisterProgressType<ProgressWithCompletion<int>, int>();
-            b.AddTypeShapeProvider(ShapeProvider_StreamJsonRpc_Tests.Default);
+            b.RegisterProgressType<ProgressWithCompletion<CustomSerializedType>, CustomSerializedType>();
+            b.AddTypeShapeProvider(JsonRpcWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }
     }
 
     protected override object[] CreateFormatterIntrinsicParamsObject(string arg) => [];
+
+    [GenerateShape<Exception>]
+    [GenerateShape<ProgressWithCompletion<int>>]
+    public partial class JsonRpcWitness;
 
     [GenerateShape]
 #if NET
