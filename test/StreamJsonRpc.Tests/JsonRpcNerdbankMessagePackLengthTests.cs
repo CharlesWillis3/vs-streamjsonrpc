@@ -410,13 +410,13 @@ public partial class JsonRpcNerdbankMessagePackLengthTests : JsonRpcTests
         {
             b.RegisterConverter(new UnserializableTypeConverter());
             b.RegisterConverter(new TypeThrowsWhenDeserializedConverter());
-            b.RegisterAsyncEnumerableType<UnionBaseClass>();
-            b.RegisterAsyncEnumerableType<UnionDerivedClass>();
-            b.RegisterProgressType<UnionBaseClass>();
-            b.RegisterProgressType<UnionDerivedClass>();
-            b.RegisterProgressType<CustomSerializedType>();
-            b.RegisterProgressType<ProgressWithCompletion<int>, int>();
-            b.RegisterProgressType<ProgressWithCompletion<CustomSerializedType>, CustomSerializedType>();
+            b.RegisterAsyncEnumerableConverter<UnionBaseClass>();
+            b.RegisterAsyncEnumerableConverter<UnionDerivedClass>();
+            b.RegisterProgressConverter<UnionBaseClass>();
+            b.RegisterProgressConverter<UnionDerivedClass>();
+            b.RegisterProgressConverter<CustomSerializedType>();
+            b.RegisterProgressConverter<ProgressWithCompletion<int>, int>();
+            b.RegisterProgressConverter<ProgressWithCompletion<CustomSerializedType>, CustomSerializedType>();
             b.AddTypeShapeProvider(JsonRpcWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }

@@ -33,14 +33,7 @@ public class DuplexPipeMarshalingNerdbankMessagePackTests : DuplexPipeMarshaling
 
         static void Configure(NerdbankMessagePackFormatter.Profile.Builder b)
         {
-            b.AddTypeShapeProvider(DuplexPipeWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }
     }
 }
-
-[GenerateShape<DuplexPipeMarshalingTests.StreamContainingClass>]
-[GenerateShape<DuplexPipeMarshalingTests.OneWayWrapperStream>]
-#pragma warning disable SA1402 // File may only contain a single type
-public partial class DuplexPipeWitness;
-#pragma warning restore SA1402 // File may only contain a single type

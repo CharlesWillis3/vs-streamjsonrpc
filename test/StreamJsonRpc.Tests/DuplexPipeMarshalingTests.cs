@@ -11,7 +11,7 @@ using Nerdbank.Streams;
 using PolyType;
 using STJ = System.Text.Json.Serialization;
 
-public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
+public abstract partial class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
 {
     protected readonly Server server = new Server();
     protected JsonRpc serverRpc;
@@ -333,13 +333,17 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         result.InnerStream.Dispose();
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task PassStreamWithArgsAsSingleObject()
     {
+        Skip.If(this.GetType() == typeof(DuplexPipeMarshalingNerdbankMessagePackTests), "Dynamic types are not supported with NerdBankMessagePack.");
         MemoryStream ms = new();
         ms.Write(new byte[] { 1, 2, 3 }, 0, 3);
         ms.Position = 0;
-        int bytesRead = await this.clientRpc.InvokeWithParameterObjectAsync<int>(nameof(Server.AcceptStreamArgInFirstParam), new { innerStream = ms }, this.TimeoutToken);
+        int bytesRead = await this.clientRpc.InvokeWithParameterObjectAsync<int>(
+            nameof(Server.AcceptStreamArgInFirstParam),
+            new { innerStream = ms },
+            this.TimeoutToken);
         Assert.Equal(ms.Length, bytesRead);
     }
 
@@ -469,15 +473,32 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
         pipePair.Item1.Input.Complete();
     }
 
-    [Theory]
+    [SkippableTheory]
     [CombinatorialData]
     public async Task ClientCanSendTwoWayStreamToServer(bool serverUsesStream)
+    {
+        Skip.If(this.GetType() == typeof(DuplexPipeMarshalingNerdbankMessagePackTests), "This test is not supported with NerdBankMessagePack.");
+        (Stream, Stream) streamPair = FullDuplexStream.CreatePair();
+        Task twoWayCom = TwoWayTalkAsync(streamPair.Item1, writeOnOdd: true, this.TimeoutToken);
+        await this.clientRpc.InvokeWithCancellationAsync(
+            serverUsesStream ? nameof(Server.TwoWayStreamAsArg) : nameof(Server.TwoWayPipeAsArg),
+            [false, streamPair.Item2],
+            this.TimeoutToken);
+        await twoWayCom.WithCancellation(this.TimeoutToken); // rethrow any exceptions.
+
+        streamPair.Item1.Dispose();
+    }
+
+    [Theory]
+    [CombinatorialData]
+    public async Task ClientCanSendTwoWayStreamToServer_WithExplicitTypes(bool serverUsesStream)
     {
         (Stream, Stream) streamPair = FullDuplexStream.CreatePair();
         Task twoWayCom = TwoWayTalkAsync(streamPair.Item1, writeOnOdd: true, this.TimeoutToken);
         await this.clientRpc.InvokeWithCancellationAsync(
             serverUsesStream ? nameof(Server.TwoWayStreamAsArg) : nameof(Server.TwoWayPipeAsArg),
             [false, streamPair.Item2],
+            [typeof(bool), typeof(Stream)],
             this.TimeoutToken);
         await twoWayCom.WithCancellation(this.TimeoutToken); // rethrow any exceptions.
 
@@ -784,17 +805,21 @@ public abstract class DuplexPipeMarshalingTests : TestBase, IAsyncLifetime
     }
 
     [DataContract]
-    public class StreamContainingClass
+    [GenerateShape]
+    public partial class StreamContainingClass
     {
         [DataMember]
+        [PropertyShape(Ignore = false)]
         private Stream innerStream;
 
+        [ConstructorShape]
         public StreamContainingClass(Stream innerStream)
         {
             this.innerStream = innerStream;
         }
 
         [STJ.JsonPropertyName("innerStream")]
+        [PropertyShape(Name = "innerStream")]
         public Stream InnerStream => this.innerStream;
     }
 

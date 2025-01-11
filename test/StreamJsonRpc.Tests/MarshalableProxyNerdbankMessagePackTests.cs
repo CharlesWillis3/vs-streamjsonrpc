@@ -18,20 +18,20 @@ public partial class MarshalableProxyNerdbankMessagePackTests : MarshalableProxy
         NerdbankMessagePackFormatter formatter = new();
         formatter.SetFormatterProfile(b =>
         {
-            b.RegisterRpcMarshalableType<IMarshalableAndSerializable>();
-            b.RegisterRpcMarshalableType<IMarshalable>();
-            b.RegisterRpcMarshalableType<IMarshalableWithCallScopedLifetime>();
-            b.RegisterRpcMarshalableType<INonDisposableMarshalable>();
-            b.RegisterRpcMarshalableType<IMarshalableSubType1>();
-            b.RegisterRpcMarshalableType<IMarshalableSubType2>();
-            b.RegisterRpcMarshalableType<IMarshalableSubType1Extended>();
-            b.RegisterRpcMarshalableType<IMarshalableNonExtendingBase>();
-            b.RegisterRpcMarshalableType<IMarshalableSubTypesCombined>();
-            b.RegisterRpcMarshalableType<IMarshalableSubTypeWithIntermediateInterface>();
-            b.RegisterRpcMarshalableType<IMarshalableSubTypeWithIntermediateInterface2>();
-            b.RegisterRpcMarshalableType<IMarshalableWithOptionalInterfaces2>();
-            b.RegisterRpcMarshalableType<IMarshalableSubType2Extended>();
-            b.RegisterRpcMarshalableType<IGenericMarshalable<int>>();
+            b.RegisterRpcMarshalableConverter<IMarshalableAndSerializable>();
+            b.RegisterRpcMarshalableConverter<IMarshalable>();
+            b.RegisterRpcMarshalableConverter<IMarshalableWithCallScopedLifetime>();
+            b.RegisterRpcMarshalableConverter<INonDisposableMarshalable>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubType1>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubType2>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubType1Extended>();
+            b.RegisterRpcMarshalableConverter<IMarshalableNonExtendingBase>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubTypesCombined>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubTypeWithIntermediateInterface>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubTypeWithIntermediateInterface2>();
+            b.RegisterRpcMarshalableConverter<IMarshalableWithOptionalInterfaces2>();
+            b.RegisterRpcMarshalableConverter<IMarshalableSubType2Extended>();
+            b.RegisterRpcMarshalableConverter<IGenericMarshalable<int>>();
             b.AddTypeShapeProvider(MarshalableProxyWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         });
@@ -40,5 +40,7 @@ public partial class MarshalableProxyNerdbankMessagePackTests : MarshalableProxy
     }
 
     [GenerateShape<Data>]
+    [GenerateShape<IMarshalableWithProperties>]
+    [GenerateShape<IMarshalableWithEvents>]
     public partial class MarshalableProxyWitness;
 }

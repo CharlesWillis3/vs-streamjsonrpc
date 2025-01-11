@@ -24,8 +24,8 @@ public class AsyncEnumerableNerdbankMessagePackTests : AsyncEnumerableTests
 
         static void ConfigureContext(NerdbankMessagePackFormatter.Profile.Builder profileBuilder)
         {
-            profileBuilder.RegisterAsyncEnumerableType<int>();
-            profileBuilder.RegisterAsyncEnumerableType<string>();
+            profileBuilder.RegisterAsyncEnumerableConverter<int>();
+            profileBuilder.RegisterAsyncEnumerableConverter<string>();
             profileBuilder.AddTypeShapeProvider(AsyncEnumerableWitness.ShapeProvider);
             profileBuilder.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);
         }

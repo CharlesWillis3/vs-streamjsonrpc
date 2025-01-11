@@ -14,7 +14,6 @@ using System.Runtime.Serialization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Nerdbank.MessagePack;
-using Nerdbank.Streams;
 using PolyType;
 using PolyType.Abstractions;
 using PolyType.ReflectionProvider;
@@ -31,8 +30,6 @@ namespace StreamJsonRpc;
 /// <remarks>
 /// The MessagePack implementation used here comes from https://github.com/AArnott/Nerdbank.MessagePack.
 /// </remarks>
-[SuppressMessage("ApiDesign", "RS0016:Add public types and members to the declared API", Justification = "TODO: Suppressed for Development")]
-[GenerateShape<MessageFormatterRpcMarshaledContextTracker.MarshalToken>]
 [GenerateShape<TraceParent>]
 [GenerateShape<IDictionary>]
 [GenerateShape<Exception>]
@@ -40,6 +37,8 @@ namespace StreamJsonRpc;
 [GenerateShape<RemoteMethodNotFoundException>]
 [GenerateShape<RemoteRpcException>]
 [GenerateShape<RemoteSerializationException>]
+[GenerateShape<MessageFormatterRpcMarshaledContextTracker.MarshalToken?>]
+[SuppressMessage("ApiDesign", "RS0016:Add public types and members to the declared API", Justification = "TODO: Suppressed for Development")]
 public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessageFormatter, IJsonRpcFormatterTracingCallbacks, IJsonRpcMessageFactory
 {
     /// <summary>
@@ -58,6 +57,8 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
     private readonly ToStringHelper serializationToStringHelper = new();
 
     private readonly ToStringHelper deserializationToStringHelper = new();
+
+    private readonly ThreadLocal<int> exceptionRecursionCounter = new();
 
     /// <summary>
     /// The serializer to use for user data (e.g. arguments, return values and errors).
@@ -87,13 +88,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         };
 
         serializer.RegisterKnownSubTypes(exceptionSubtypeMap);
-        serializer.RegisterConverter(RequestIdConverter.Instance);
-        serializer.RegisterConverter(EventArgsConverter.Instance);
-        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<Exception>());
-        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteInvocationException>());
-        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteMethodNotFoundException>());
-        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteRpcException>());
-        serializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteSerializationException>());
+        RegisterCommonConverters(serializer);
 
         this.rpcProfile = new Profile(
             Profile.ProfileSource.Internal,
@@ -115,25 +110,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         };
 
         userSerializer.RegisterKnownSubTypes(exceptionSubtypeMap);
-
-        // Add our own resolvers to fill in specialized behavior if the user doesn't provide/override it by their own resolver.
-        // We preset this one in user data because $/cancellation methods can carry RequestId values as arguments.
-        userSerializer.RegisterConverter(RequestIdConverter.Instance);
-
-        // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
-        userSerializer.RegisterConverter(EventArgsConverter.Instance);
-
-        // Common exotic types that we want to support.
-        userSerializer.RegisterConverter(GetRpcMarshalableConverter<IDisposable>());
-        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<PipeReader>());
-        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<PipeWriter>());
-        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<Stream>());
-        userSerializer.RegisterConverter(PipeConverterResolver.GetConverter<IDuplexPipe>());
-        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<Exception>());
-        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteInvocationException>());
-        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteMethodNotFoundException>());
-        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteRpcException>());
-        userSerializer.RegisterConverter(MessagePackExceptionConverterResolver.GetConverter<RemoteSerializationException>());
+        RegisterCommonConverters(userSerializer);
 
         this.userDataProfile = new Profile(
             Profile.ProfileSource.External,
@@ -144,17 +121,27 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             ]);
 
         this.ProfileBuilder = new Profile.Builder(this.userDataProfile);
-    }
 
-    private interface IJsonRpcMessagePackRetention
-    {
-        /// <summary>
-        /// Gets the original msgpack sequence that was deserialized into this message.
-        /// </summary>
-        /// <remarks>
-        /// The buffer is only retained for a short time. If it has already been cleared, the result of this property is an empty sequence.
-        /// </remarks>
-        ReadOnlySequence<byte> OriginalMessagePack { get; }
+        // Add our own resolvers to fill in specialized behavior if the user doesn't provide/override it by their own resolver.
+        static void RegisterCommonConverters(MessagePackSerializer serializer)
+        {
+            serializer.RegisterConverter(GetRpcMarshalableConverter<IDisposable>());
+            serializer.RegisterConverter(PipeConverters.PipeReaderConverter<PipeReader>.DefaultInstance);
+            serializer.RegisterConverter(PipeConverters.PipeWriterConverter<PipeWriter>.DefaultInstance);
+            serializer.RegisterConverter(PipeConverters.StreamConverter<Stream>.DefaultInstance);
+            serializer.RegisterConverter(PipeConverters.DuplexPipeConverter<IDuplexPipe>.DefaultInstance);
+
+            // We preset this one in user data because $/cancellation methods can carry RequestId values as arguments.
+            serializer.RegisterConverter(RequestIdConverter.Instance);
+
+            // We preset this one because for some protocols like IProgress<T>, tokens are passed in that we must relay exactly back to the client as an argument.
+            serializer.RegisterConverter(EventArgsConverter.Instance);
+            serializer.RegisterConverter(ExceptionConverter<Exception>.Instance);
+            serializer.RegisterConverter(ExceptionConverter<RemoteInvocationException>.Instance);
+            serializer.RegisterConverter(ExceptionConverter<RemoteMethodNotFoundException>.Instance);
+            serializer.RegisterConverter(ExceptionConverter<RemoteRpcException>.Instance);
+            serializer.RegisterConverter(ExceptionConverter<RemoteSerializationException>.Instance);
+        }
     }
 
     /// <summary>
@@ -408,7 +395,10 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
 
     private static ReadOnlySequence<byte> GetSliceForNextToken(ref MessagePackReader reader, in SerializationContext context)
     {
-        return reader.ReadRaw(context);
+        SequencePosition startPosition = reader.Position;
+        reader.Skip(context);
+        SequencePosition endPosition = reader.Position;
+        return reader.Sequence.Slice(startPosition, endPosition);
     }
 
     /// <summary>
@@ -910,8 +900,7 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
             {
                 writer.WriteNil();
             }
-
-            if (value.ResultDeclaredType is not null
+            else if (value.ResultDeclaredType is not null
                 && value.ResultDeclaredType != typeof(void)
                 && value.ResultDeclaredType != typeof(object))
             {
@@ -1113,825 +1102,6 @@ public partial class NerdbankMessagePackFormatter : FormatterBase, IJsonRpcMessa
         {
             return CreateUndocumentedSchema(typeof(JsonRpcErrorDetailConverter));
         }
-    }
-
-    internal class TraceParentConverter : MessagePackConverter<TraceParent>
-    {
-        public unsafe override TraceParent Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            if (reader.ReadArrayHeader() != 2)
-            {
-                throw new NotSupportedException("Unexpected array length.");
-            }
-
-            var result = default(TraceParent);
-            result.Version = reader.ReadByte();
-            if (result.Version != 0)
-            {
-                throw new NotSupportedException("traceparent version " + result.Version + " is not supported.");
-            }
-
-            if (reader.ReadArrayHeader() != 3)
-            {
-                throw new NotSupportedException("Unexpected array length in version-format.");
-            }
-
-            ReadOnlySequence<byte> bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected traceid not found.");
-            bytes.CopyTo(new Span<byte>(result.TraceId, TraceParent.TraceIdByteCount));
-
-            bytes = reader.ReadBytes() ?? throw new NotSupportedException("Expected parentid not found.");
-            bytes.CopyTo(new Span<byte>(result.ParentId, TraceParent.ParentIdByteCount));
-
-            result.Flags = (TraceParent.TraceFlags)reader.ReadByte();
-
-            return result;
-        }
-
-        public unsafe override void Write(ref MessagePackWriter writer, in TraceParent value, SerializationContext context)
-        {
-            if (value.Version != 0)
-            {
-                throw new NotSupportedException("traceparent version " + value.Version + " is not supported.");
-            }
-
-            context.DepthStep();
-
-            writer.WriteArrayHeader(2);
-
-            writer.Write(value.Version);
-
-            writer.WriteArrayHeader(3);
-
-            fixed (byte* traceId = value.TraceId)
-            {
-                writer.Write(new ReadOnlySpan<byte>(traceId, TraceParent.TraceIdByteCount));
-            }
-
-            fixed (byte* parentId = value.ParentId)
-            {
-                writer.Write(new ReadOnlySpan<byte>(parentId, TraceParent.ParentIdByteCount));
-            }
-
-            writer.Write((byte)value.Flags);
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(TraceParentConverter));
-        }
-    }
-
-    private static class ProgressConverterResolver
-    {
-        public static MessagePackConverter<T> GetConverter<T>()
-        {
-            MessagePackConverter<T>? converter = default;
-
-            if (MessageFormatterProgressTracker.CanDeserialize(typeof(T)))
-            {
-                converter = new FullProgressConverter<T>();
-            }
-            else if (MessageFormatterProgressTracker.CanSerialize(typeof(T)))
-            {
-                converter = new ProgressClientConverter<T>();
-            }
-
-            // TODO: Improve Exception
-            return converter ?? throw new NotSupportedException();
-        }
-
-        /// <summary>
-        /// Converts an instance of <see cref="IProgress{T}"/> to a progress token.
-        /// </summary>
-        private class ProgressClientConverter<TClass> : MessagePackConverter<TClass>
-        {
-            public override TClass Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                throw new NotSupportedException("This formatter only serializes IProgress<T> instances.");
-            }
-
-            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                if (value is null)
-                {
-                    writer.WriteNil();
-                }
-                else
-                {
-                    long progressId = formatter.FormatterProgressTracker.GetTokenForProgress(value);
-                    writer.Write(progressId);
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(ProgressClientConverter<TClass>));
-            }
-        }
-
-        /// <summary>
-        /// Converts a progress token to an <see cref="IProgress{T}"/> or an <see cref="IProgress{T}"/> into a token.
-        /// </summary>
-        private class FullProgressConverter<TClass> : MessagePackConverter<TClass>
-        {
-            [return: MaybeNull]
-            public override TClass? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                if (reader.TryReadNil())
-                {
-                    return default!;
-                }
-
-                Assumes.NotNull(formatter.JsonRpc);
-                ReadOnlySequence<byte> token = reader.ReadRaw(context);
-                bool clientRequiresNamedArgs = formatter.ApplicableMethodAttributeOnDeserializingMethod?.ClientRequiresNamedArguments is true;
-                return (TClass)formatter.FormatterProgressTracker.CreateProgress(formatter.JsonRpc, token, typeof(TClass), clientRequiresNamedArgs);
-            }
-
-            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                if (value is null)
-                {
-                    writer.WriteNil();
-                }
-                else
-                {
-                    long progressId = formatter.FormatterProgressTracker.GetTokenForProgress(value);
-                    writer.Write(progressId);
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(FullProgressConverter<TClass>));
-            }
-        }
-    }
-
-    private static class AsyncEnumerableConverterResolver
-    {
-        public static MessagePackConverter<T> GetConverter<T>()
-        {
-            MessagePackConverter<T>? converter = default;
-
-            if (TrackerHelpers<IAsyncEnumerable<int>>.IsActualInterfaceMatch(typeof(T)))
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(
-                    typeof(PreciseTypeConverter<>).MakeGenericType(typeof(T).GenericTypeArguments[0]));
-            }
-            else if (TrackerHelpers<IAsyncEnumerable<int>>.FindInterfaceImplementedBy(typeof(T)) is { } iface)
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(
-                    typeof(GeneratorConverter<,>).MakeGenericType(typeof(T), iface.GenericTypeArguments[0]));
-            }
-
-            // TODO: Improve Exception
-            return converter ?? throw new NotSupportedException();
-        }
-
-        /// <summary>
-        /// Converts an enumeration token to an <see cref="IAsyncEnumerable{T}"/>
-        /// or an <see cref="IAsyncEnumerable{T}"/> into an enumeration token.
-        /// </summary>
-#pragma warning disable CA1812
-        private partial class PreciseTypeConverter<T> : MessagePackConverter<IAsyncEnumerable<T>>
-#pragma warning restore CA1812
-        {
-            /// <summary>
-            /// The constant "token", in its various forms.
-            /// </summary>
-            private static readonly MessagePackString TokenPropertyName = new(MessageFormatterEnumerableTracker.TokenPropertyName);
-
-            /// <summary>
-            /// The constant "values", in its various forms.
-            /// </summary>
-            private static readonly MessagePackString ValuesPropertyName = new(MessageFormatterEnumerableTracker.ValuesPropertyName);
-
-            public override IAsyncEnumerable<T>? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                if (reader.TryReadNil())
-                {
-                    return default;
-                }
-
-                NerdbankMessagePackFormatter mainFormatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                RawMessagePack? token = default;
-                IReadOnlyList<T>? initialElements = null;
-                int propertyCount = reader.ReadMapHeader();
-                for (int i = 0; i < propertyCount; i++)
-                {
-                    if (TokenPropertyName.TryRead(ref reader))
-                    {
-                        token = (RawMessagePack)reader.ReadRaw(context);
-                    }
-                    else if (ValuesPropertyName.TryRead(ref reader))
-                    {
-                        initialElements = context.GetConverter<IReadOnlyList<T>>(context.TypeShapeProvider).Read(ref reader, context);
-                    }
-                    else
-                    {
-                        reader.Skip(context);
-                    }
-                }
-
-                return mainFormatter.EnumerableTracker.CreateEnumerableProxy(token.HasValue ? (object)token : null, initialElements);
-            }
-
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to helper method")]
-            public override void Write(ref MessagePackWriter writer, in IAsyncEnumerable<T>? value, SerializationContext context)
-            {
-                context.DepthStep();
-
-                NerdbankMessagePackFormatter mainFormatter = context.GetFormatter();
-                Serialize_Shared(mainFormatter, ref writer, value, context);
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(PreciseTypeConverter<T>));
-            }
-
-            internal static void Serialize_Shared(NerdbankMessagePackFormatter mainFormatter, ref MessagePackWriter writer, IAsyncEnumerable<T>? value, SerializationContext context)
-            {
-                if (value is null)
-                {
-                    writer.WriteNil();
-                }
-                else
-                {
-                    (IReadOnlyList<T> elements, bool finished) = value.TearOffPrefetchedElements();
-                    long token = mainFormatter.EnumerableTracker.GetToken(value);
-
-                    int propertyCount = 0;
-                    if (elements.Count > 0)
-                    {
-                        propertyCount++;
-                    }
-
-                    if (!finished)
-                    {
-                        propertyCount++;
-                    }
-
-                    writer.WriteMapHeader(propertyCount);
-
-                    if (!finished)
-                    {
-                        writer.Write(TokenPropertyName);
-                        writer.Write(token);
-                    }
-
-                    if (elements.Count > 0)
-                    {
-                        writer.Write(ValuesPropertyName);
-                        context.GetConverter<IReadOnlyList<T>>(context.TypeShapeProvider).Write(ref writer, elements, context);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Converts an instance of <see cref="IAsyncEnumerable{T}"/> to an enumeration token.
-        /// </summary>
-#pragma warning disable CA1812
-        private class GeneratorConverter<TClass, TElement> : MessagePackConverter<TClass>
-            where TClass : IAsyncEnumerable<TElement>
-#pragma warning restore CA1812
-        {
-            public override TClass Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                throw new NotSupportedException();
-            }
-
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to helper method")]
-            public override void Write(ref MessagePackWriter writer, in TClass? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter mainFormatter = context.GetFormatter();
-
-                context.DepthStep();
-                PreciseTypeConverter<TElement>.Serialize_Shared(mainFormatter, ref writer, value, context);
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(GeneratorConverter<TClass, TElement>));
-            }
-        }
-    }
-
-    private static class PipeConverterResolver
-    {
-        public static MessagePackConverter<T> GetConverter<T>()
-        {
-            MessagePackConverter<T>? converter = default;
-
-            if (typeof(IDuplexPipe).IsAssignableFrom(typeof(T)))
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(DuplexPipeConverter<>).MakeGenericType(typeof(T)))!;
-            }
-            else if (typeof(PipeReader).IsAssignableFrom(typeof(T)))
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PipeReaderConverter<>).MakeGenericType(typeof(T)))!;
-            }
-            else if (typeof(PipeWriter).IsAssignableFrom(typeof(T)))
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(PipeWriterConverter<>).MakeGenericType(typeof(T)))!;
-            }
-            else if (typeof(Stream).IsAssignableFrom(typeof(T)))
-            {
-                converter = (MessagePackConverter<T>?)Activator.CreateInstance(typeof(StreamConverter<>).MakeGenericType(typeof(T)))!;
-            }
-
-            // TODO: Improve Exception
-            return converter ?? throw new NotSupportedException();
-        }
-
-        private class DuplexPipeConverter<T> : MessagePackConverter<T>
-            where T : class, IDuplexPipe
-        {
-            public override T? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                if (reader.TryReadNil())
-                {
-                    return null;
-                }
-
-                return (T)formatter.DuplexPipeTracker.GetPipe(reader.ReadUInt64());
-            }
-
-            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-
-                if (formatter.DuplexPipeTracker.GetULongToken(value) is ulong token)
-                {
-                    writer.Write(token);
-                }
-                else
-                {
-                    writer.WriteNil();
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(DuplexPipeConverter<T>));
-            }
-        }
-
-        private class PipeReaderConverter<T> : MessagePackConverter<T>
-            where T : PipeReader
-        {
-            public override T? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (reader.TryReadNil())
-                {
-                    return null;
-                }
-
-                return (T)formatter.DuplexPipeTracker.GetPipeReader(reader.ReadUInt64());
-            }
-
-            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (formatter.DuplexPipeTracker.GetULongToken(value) is { } token)
-                {
-                    writer.Write(token);
-                }
-                else
-                {
-                    writer.WriteNil();
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(PipeReaderConverter<T>));
-            }
-        }
-
-        private class PipeWriterConverter<T> : MessagePackConverter<T>
-            where T : PipeWriter
-        {
-            public override T? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (reader.TryReadNil())
-                {
-                    return null;
-                }
-
-                return (T)formatter.DuplexPipeTracker.GetPipeWriter(reader.ReadUInt64());
-            }
-
-            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (formatter.DuplexPipeTracker.GetULongToken(value) is ulong token)
-                {
-                    writer.Write(token);
-                }
-                else
-                {
-                    writer.WriteNil();
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(PipeWriterConverter<T>));
-            }
-        }
-
-        private class StreamConverter<T> : MessagePackConverter<T>
-            where T : Stream
-        {
-            public override T? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (reader.TryReadNil())
-                {
-                    return null;
-                }
-
-                return (T)formatter.DuplexPipeTracker.GetPipe(reader.ReadUInt64()).AsStream();
-            }
-
-            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (formatter.DuplexPipeTracker.GetULongToken(value?.UsePipe()) is { } token)
-                {
-                    writer.Write(token);
-                }
-                else
-                {
-                    writer.WriteNil();
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(StreamConverter<T>));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Manages serialization of any <see cref="Exception"/>-derived type that follows standard <see cref="SerializableAttribute"/> rules.
-    /// </summary>
-    /// <remarks>
-    /// A serializable class will:
-    /// 1. Derive from <see cref="Exception"/>
-    /// 2. Be attributed with <see cref="SerializableAttribute"/>
-    /// 3. Declare a constructor with a signature of (<see cref="SerializationInfo"/>, <see cref="StreamingContext"/>).
-    /// </remarks>
-    private static class MessagePackExceptionConverterResolver
-    {
-        /// <summary>
-        /// Tracks recursion count while serializing or deserializing an exception.
-        /// </summary>
-        /// <devremarks>
-        /// This is placed here (<em>outside</em> the generic <see cref="ExceptionConverter{T}"/> class)
-        /// so that it's one counter shared across all exception types that may be serialized or deserialized.
-        /// </devremarks>
-        private static ThreadLocal<int> exceptionRecursionCounter = new();
-
-        public static MessagePackConverter<T> GetConverter<T>()
-        {
-            MessagePackConverter<T>? formatter = null;
-            if (typeof(Exception).IsAssignableFrom(typeof(T)) && typeof(T).GetCustomAttribute<SerializableAttribute>() is not null)
-            {
-                formatter = (MessagePackConverter<T>)Activator.CreateInstance(typeof(ExceptionConverter<>).MakeGenericType(typeof(T)))!;
-            }
-
-            // TODO: Improve Exception
-            return formatter ?? throw new NotSupportedException();
-        }
-
-        private partial class ExceptionConverter<T> : MessagePackConverter<T>
-            where T : Exception
-        {
-            public override T? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-                Assumes.NotNull(formatter.JsonRpc);
-
-                context.DepthStep();
-
-                if (reader.TryReadNil())
-                {
-                    return null;
-                }
-
-                // We have to guard our own recursion because the serializer has no visibility into inner exceptions.
-                // Each exception in the russian doll is a new serialization job from its perspective.
-                exceptionRecursionCounter.Value++;
-                try
-                {
-                    if (exceptionRecursionCounter.Value > formatter.JsonRpc.ExceptionOptions.RecursionLimit)
-                    {
-                        // Exception recursion has gone too deep. Skip this value and return null as if there were no inner exception.
-                        // Note that in skipping, the parser may use recursion internally and may still throw if its own limits are exceeded.
-                        reader.Skip(context);
-                        return null;
-                    }
-
-                    // TODO: Is this the right context?
-                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.userDataProfile));
-                    int memberCount = reader.ReadMapHeader();
-                    for (int i = 0; i < memberCount; i++)
-                    {
-                        string? name = context.GetConverter<string>(context.TypeShapeProvider).Read(ref reader, context)
-                            ?? throw new MessagePackSerializationException(Resources.UnexpectedNullValueInMap);
-
-                        // SerializationInfo.GetValue(string, typeof(object)) does not call our formatter,
-                        // so the caller will get a boxed RawMessagePack struct in that case.
-                        // Although we can't do much about *that* in general, we can at least ensure that null values
-                        // are represented as null instead of this boxed struct.
-                        var value = reader.TryReadNil() ? null : (object)reader.ReadRaw(context);
-
-                        info.AddSafeValue(name, value);
-                    }
-
-                    return ExceptionSerializationHelpers.Deserialize<T>(formatter.JsonRpc, info, formatter.JsonRpc.TraceSource);
-                }
-                finally
-                {
-                    exceptionRecursionCounter.Value--;
-                }
-            }
-
-            public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-            {
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-                context.DepthStep();
-                if (value is null)
-                {
-                    writer.WriteNil();
-                    return;
-                }
-
-                exceptionRecursionCounter.Value++;
-                try
-                {
-                    if (exceptionRecursionCounter.Value > formatter.JsonRpc?.ExceptionOptions.RecursionLimit)
-                    {
-                        // Exception recursion has gone too deep. Skip this value and write null as if there were no inner exception.
-                        writer.WriteNil();
-                        return;
-                    }
-
-                    // TODO: Is this the right profile?
-                    var info = new SerializationInfo(typeof(T), new MessagePackFormatterConverter(formatter.userDataProfile));
-                    ExceptionSerializationHelpers.Serialize(value, info);
-                    writer.WriteMapHeader(info.GetSafeMemberCount());
-                    foreach (SerializationEntry element in info.GetSafeMembers())
-                    {
-                        writer.Write(element.Name);
-                        formatter.rpcProfile.SerializeObject(
-                            ref writer,
-                            element.Value,
-                            element.ObjectType,
-                            context.CancellationToken);
-                    }
-                }
-                finally
-                {
-                    exceptionRecursionCounter.Value--;
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(ExceptionConverter<T>));
-            }
-        }
-    }
-
-    private static class EnumeratorResultsConverterResolver
-    {
-        public static MessagePackConverter<MessageFormatterEnumerableTracker.EnumeratorResults<T>> GetConverter<T>()
-        {
-            MessagePackConverter<MessageFormatterEnumerableTracker.EnumeratorResults<T>>? converter =
-                (EnumeratorResultsConverter<T>?)Activator
-                .CreateInstance(typeof(EnumeratorResultsConverter<>)
-                .MakeGenericType(typeof(T)));
-
-            return converter ?? throw new NotSupportedException($"Could not create {nameof(EnumeratorResultsConverter<T>)}.");
-        }
-
-        private class EnumeratorResultsConverter<T> : MessagePackConverter<MessageFormatterEnumerableTracker.EnumeratorResults<T>>
-        {
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Reader is passed to user data context")]
-            public override MessageFormatterEnumerableTracker.EnumeratorResults<T>? Read(ref MessagePackReader reader, SerializationContext context)
-            {
-                if (reader.TryReadNil())
-                {
-                    return default;
-                }
-
-                NerdbankMessagePackFormatter formatter = context.GetFormatter();
-                context.DepthStep();
-
-                Verify.Operation(reader.ReadArrayHeader() == 2, "Expected array of length 2.");
-                return new MessageFormatterEnumerableTracker.EnumeratorResults<T>()
-                {
-                    Values = formatter.userDataProfile.Deserialize<IReadOnlyList<T>>(ref reader, context.CancellationToken),
-                    Finished = formatter.userDataProfile.Deserialize<bool>(ref reader, context.CancellationToken),
-                };
-            }
-
-            [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to user data context")]
-            public override void Write(ref MessagePackWriter writer, in MessageFormatterEnumerableTracker.EnumeratorResults<T>? value, SerializationContext context)
-            {
-                if (value is null)
-                {
-                    writer.WriteNil();
-                }
-                else
-                {
-                    NerdbankMessagePackFormatter formatter = context.GetFormatter();
-                    context.DepthStep();
-
-                    writer.WriteArrayHeader(2);
-                    formatter.userDataProfile.Serialize(ref writer, value.Values, context.CancellationToken);
-                    formatter.userDataProfile.Serialize(ref writer, value.Finished, context.CancellationToken);
-                }
-            }
-
-            public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-            {
-                return CreateUndocumentedSchema(typeof(EnumeratorResultsConverter<T>));
-            }
-        }
-    }
-
-    private class RpcMarshalableConverter<T>(
-        JsonRpcProxyOptions proxyOptions,
-        JsonRpcTargetOptions targetOptions,
-        RpcMarshalableAttribute rpcMarshalableAttribute) : MessagePackConverter<T>
-        where T : class
-    {
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Reader is passed to rpc context")]
-        public override T? Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-            context.DepthStep();
-
-            // This converter instance is registered with the user data profile,
-            // however the shape of MarshalToken is defined by the StreamJsonRpc source generator provider.
-            MessageFormatterRpcMarshaledContextTracker.MarshalToken? token = context
-                .GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)
-                .Read(ref reader, context);
-
-            return token.HasValue
-                ? (T?)formatter.RpcMarshaledContextTracker.GetObject(typeof(T), token, proxyOptions)
-                : null;
-        }
-
-        [SuppressMessage("Usage", "NBMsgPack031:Converters should read or write exactly one msgpack structure", Justification = "Writer is passed to rpc context")]
-        public override void Write(ref MessagePackWriter writer, in T? value, SerializationContext context)
-        {
-            NerdbankMessagePackFormatter formatter = context.GetFormatter();
-
-            context.DepthStep();
-
-            if (value is null)
-            {
-                writer.WriteNil();
-            }
-            else
-            {
-                MessageFormatterRpcMarshaledContextTracker.MarshalToken token = formatter.RpcMarshaledContextTracker.GetToken(value, targetOptions, typeof(T), rpcMarshalableAttribute);
-
-                // This converter instance is registered with the user data profile,
-                // however the shape of MarshalToken is defined by the StreamJsonRpc source generator provider.
-                context.GetConverter<MessageFormatterRpcMarshaledContextTracker.MarshalToken>(ShapeProvider_StreamJsonRpc.Default)
-                    .Write(ref writer, token, context);
-            }
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(RpcMarshalableConverter<T>));
-        }
-    }
-
-    /// <summary>
-    /// Enables formatting the default/empty <see cref="EventArgs"/> class.
-    /// </summary>
-    private class EventArgsConverter : MessagePackConverter<EventArgs>
-    {
-        internal static readonly EventArgsConverter Instance = new();
-
-        private EventArgsConverter()
-        {
-        }
-
-        /// <inheritdoc/>
-        public override void Write(ref MessagePackWriter writer, in EventArgs? value, SerializationContext context)
-        {
-            Requires.NotNull(value!, nameof(value));
-            context.DepthStep();
-            writer.WriteMapHeader(0);
-        }
-
-        /// <inheritdoc/>
-        public override EventArgs Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-            reader.Skip(context);
-            return EventArgs.Empty;
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape)
-        {
-            return CreateUndocumentedSchema(typeof(EventArgsConverter));
-        }
-    }
-
-    private class RequestIdConverter : MessagePackConverter<RequestId>
-    {
-        internal static readonly RequestIdConverter Instance = new();
-
-        private RequestIdConverter()
-        {
-        }
-
-        public override RequestId Read(ref MessagePackReader reader, SerializationContext context)
-        {
-            context.DepthStep();
-
-            if (reader.NextMessagePackType == MessagePackType.Integer)
-            {
-                return new RequestId(reader.ReadInt64());
-            }
-            else
-            {
-                // Do *not* read as an interned string here because this ID should be unique.
-                return new RequestId(reader.ReadString());
-            }
-        }
-
-        public override void Write(ref MessagePackWriter writer, in RequestId value, SerializationContext context)
-        {
-            context.DepthStep();
-
-            if (value.Number.HasValue)
-            {
-                writer.Write(value.Number.Value);
-            }
-            else
-            {
-                writer.Write(value.String);
-            }
-        }
-
-        public override JsonObject? GetJsonSchema(JsonSchemaContext context, ITypeShape typeShape) => JsonNode.Parse("""
-        {
-            "type": ["string", { "type": "integer", "format": "int64" }]
-        }
-        """)?.AsObject();
     }
 
     private class TopLevelPropertyBag : TopLevelPropertyBagBase

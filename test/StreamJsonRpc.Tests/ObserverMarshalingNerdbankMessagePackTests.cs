@@ -15,7 +15,7 @@ public class ObserverMarshalingNerdbankMessagePackTests : ObserverMarshalingTest
         NerdbankMessagePackFormatter formatter = new();
         formatter.SetFormatterProfile(b =>
         {
-            b.RegisterRpcMarshalableType<IObserver<int>>();
+            b.RegisterRpcMarshalableConverter<IObserver<int>>();
             b.RegisterExceptionType<ApplicationException>();
             b.AddTypeShapeProvider(ObserverMarshalingWitness.ShapeProvider);
             b.AddTypeShapeProvider(PolyType.ReflectionProvider.ReflectionTypeShapeProvider.Default);

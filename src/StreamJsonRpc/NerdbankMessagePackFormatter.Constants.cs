@@ -1,10 +1,8 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System.Diagnostics;
 using Nerdbank.MessagePack;
 using StreamJsonRpc.Protocol;
-using NBMP = Nerdbank.MessagePack;
 
 namespace StreamJsonRpc;
 
